@@ -1,0 +1,213 @@
+# mbaos kernel configuration fragment — MacBook Air 7,1 / 7,2 only.
+#
+# Applied on top of `allnoconfig`: everything not listed here is OFF unless the
+# kernel forces it on. scripts/kernel.sh fails the build if any line below does
+# not survive into the final .config (renamed or unmet dependency), so this
+# file is the complete, checked statement of what the kernel contains.
+# The fully resolved result is committed as config/kernel.resolved.config.
+#
+# Phase tags show when an option was added. Anything for hardware we have not
+# brought up yet waits for that phase.
+
+## ---- Identity, build -----------------------------------------------------[P1]
+CONFIG_LOCALVERSION="-mbaos"
+# CONFIG_LOCALVERSION_AUTO is not set
+CONFIG_DEFAULT_HOSTNAME="mba"
+CONFIG_64BIT=y
+CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+# LZ4: fastest decompression of the kernel image at boot (re-measured in Phase 7)
+CONFIG_KERNEL_LZ4=y
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
+# No modules: every driver is built in (revisited in Phase 4 for broadcom-wl)
+# CONFIG_MODULES is not set
+# No initramfs until full-disk encryption needs one (Phase 6)
+# CONFIG_BLK_DEV_INITRD is not set
+
+## ---- Logging -------------------------------------------------------------[P1]
+CONFIG_PRINTK=y
+CONFIG_PRINTK_TIME=y
+CONFIG_LOG_BUF_SHIFT=17
+CONFIG_BUG=y
+CONFIG_KALLSYMS=y
+
+## ---- Scheduler, timers, preemption ---------------------------------------[P1]
+CONFIG_PREEMPT=y
+CONFIG_HZ_1000=y
+CONFIG_NO_HZ_IDLE=y
+CONFIG_HIGH_RES_TIMERS=y
+
+## ---- CPU: Broadwell-U, 2 cores / 4 threads -------------------------------[P1]
+CONFIG_SMP=y
+CONFIG_NR_CPUS=4
+CONFIG_SCHED_SMT=y
+CONFIG_SCHED_MC=y
+CONFIG_CPU_SUP_INTEL=y
+# Other vendors' support stays in (~50 KB): removing it needs CONFIG_EXPERT,
+# which under allnoconfig silently drops dozens of standard features.
+CONFIG_X86_MCE=y
+CONFIG_X86_MCE_INTEL=y
+CONFIG_CPU_IDLE=y
+CONFIG_INTEL_IDLE=y
+CONFIG_CPU_FREQ=y
+CONFIG_X86_INTEL_PSTATE=y
+CONFIG_DMI=y
+# /sys/class/dmi/id: machine identification (applesmc and quirks key off DMI)
+CONFIG_DMIID=y
+
+## ---- Firmware: Apple 64-bit UEFI, EFI stub boot, ACPI --------------------[P1]
+CONFIG_EFI=y
+CONFIG_EFI_STUB=y
+# CONFIG_EFI_MIXED is not set
+CONFIG_APPLE_PROPERTIES=y
+CONFIG_ACPI=y
+CONFIG_PCI=y
+CONFIG_PCIEPORTBUS=y
+CONFIG_PCI_MSI=y
+CONFIG_HPET_TIMER=y
+CONFIG_RTC_CLASS=y
+CONFIG_RTC_HCTOSYS=y
+CONFIG_RTC_DRV_CMOS=y
+
+## ---- Built-in command line -----------------------------------------------[P1]
+# Apple's firmware passes no arguments to \EFI\BOOT\BOOTX64.EFI, so the kernel
+# carries its own. Root is found by its fixed GPT partition GUID
+# (ROOT_PART_GUID in config/target.conf); kernel.sh checks the two agree.
+# rootwait: USB sticks enumerate after the kernel is ready to mount.
+# console order: last one is /dev/console -> the screen (the Mac has no UART).
+# Arguments a boot loader passes (QEMU -append) are appended, not ignored;
+# CMDLINE_OVERRIDE (ignore them) comes with the lockdown work in Phase 6.
+CONFIG_CMDLINE_BOOL=y
+CONFIG_CMDLINE="root=PARTUUID=6d62616f-7300-4000-8000-000000000003 rootfstype=ext4 rootwait ro console=ttyS0,115200 console=tty0 printk.devkmsg=on"
+# CONFIG_CMDLINE_OVERRIDE is not set
+
+## ---- Executables, core kernel interfaces ---------------------------------[P1]
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
+CONFIG_MULTIUSER=y
+CONFIG_FUTEX=y
+CONFIG_EPOLL=y
+CONFIG_SIGNALFD=y
+CONFIG_TIMERFD=y
+CONFIG_EVENTFD=y
+CONFIG_SHMEM=y
+CONFIG_FILE_LOCKING=y
+CONFIG_INOTIFY_USER=y
+CONFIG_POSIX_TIMERS=y
+
+## ---- Filesystems ---------------------------------------------------------[P1]
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_EXT4_FS=y
+CONFIG_VFAT_FS=y
+CONFIG_NLS_CODEPAGE_437=y
+CONFIG_NLS_ISO8859_1=y
+CONFIG_PARTITION_ADVANCED=y
+CONFIG_EFI_PARTITION=y
+
+## ---- Storage: Apple AHCI PCIe SSD, USB sticks ----------------------------[P1]
+CONFIG_BLOCK=y
+CONFIG_ATA=y
+CONFIG_SATA_AHCI=y
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+CONFIG_USB_STORAGE=y
+CONFIG_USB_UAS=y
+
+## ---- USB host, keyboard (internal keyboard is USB) -----------------------[P1]
+CONFIG_USB_SUPPORT=y
+CONFIG_USB=y
+CONFIG_USB_PCI=y
+CONFIG_USB_XHCI_HCD=y
+CONFIG_USB_XHCI_PCI=y
+CONFIG_USB_EHCI_HCD=y
+CONFIG_USB_EHCI_PCI=y
+CONFIG_INPUT=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_KEYBOARD=y
+CONFIG_HID_SUPPORT=y
+CONFIG_HID=y
+CONFIG_HID_GENERIC=y
+CONFIG_USB_HID=y
+CONFIG_HID_APPLE=y
+# hid-apple needs the LED class (also used by keyboard backlight, Phase 3)
+CONFIG_NEW_LEDS=y
+CONFIG_LEDS_CLASS=y
+
+## ---- Console: firmware framebuffer until i915 arrives (Phase 3) ----------[P1]
+CONFIG_TTY=y
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+CONFIG_DRM=y
+CONFIG_SYSFB_SIMPLEFB=y
+CONFIG_DRM_SIMPLEDRM=y
+CONFIG_FB=y
+CONFIG_DRM_CLIENT_SELECTION=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_DRM_CLIENT_DEFAULT_FBDEV=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+# 16550 UART: QEMU only (the Mac has none; probing an absent port is harmless)
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_NR_UARTS=1
+CONFIG_SERIAL_8250_RUNTIME_UARTS=1
+CONFIG_SERIAL_EARLYCON=y
+
+## ---- Memory safety, hardening --------------------------------------------[P1]
+CONFIG_RELOCATABLE=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_RANDOMIZE_MEMORY=y
+CONFIG_VMAP_STACK=y
+CONFIG_STACKPROTECTOR=y
+CONFIG_STACKPROTECTOR_STRONG=y
+CONFIG_INIT_STACK_ALL_ZERO=y
+CONFIG_HARDENED_USERCOPY=y
+CONFIG_FORTIFY_SOURCE=y
+CONFIG_SLAB_FREELIST_RANDOM=y
+CONFIG_SLAB_FREELIST_HARDENED=y
+CONFIG_KMALLOC_PARTITION_CACHES=y
+CONFIG_KMALLOC_PARTITION_RANDOM=y
+CONFIG_SHUFFLE_PAGE_ALLOCATOR=y
+CONFIG_LIST_HARDENED=y
+CONFIG_BUG_ON_DATA_CORRUPTION=y
+CONFIG_LEGACY_VSYSCALL_NONE=y
+CONFIG_SECCOMP=y
+# SECCOMP_FILTER needs CONFIG_NET: added with networking in Phase 2
+# CONFIG_DEVMEM is not set
+# CONFIG_KEXEC is not set
+# CONFIG_HIBERNATION is not set
+
+## ---- Kernel lockdown (integrity mode, forced) ----------------------------[P1]
+CONFIG_SECURITY=y
+CONFIG_SECURITYFS=y
+CONFIG_SECURITY_LOCKDOWN_LSM=y
+CONFIG_SECURITY_LOCKDOWN_LSM_EARLY=y
+CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y
+
+## ---- CPU vulnerability mitigations (Broadwell; see DESIGN.md §1.5) -------[P1]
+# Policy: compile in every mitigation that applies to Intel CPUs and let the
+# kernel pick at runtime by CPU model and microcode. allnoconfig would
+# otherwise turn each one off individually. Left out on purpose:
+#   IBPB_ENTRY, SRSO, TSA: AMD only.  VMSCAPE: KVM hosts only.
+#   SLS: AMD-motivated compile-time padding.
+#   CALL_DEPTH_TRACKING, IBRS_ENTRY: Retbleed defences for Skylake+;
+#   Broadwell is not affected by Retbleed.
+CONFIG_CPU_MITIGATIONS=y
+CONFIG_MITIGATION_PAGE_TABLE_ISOLATION=y
+CONFIG_MITIGATION_RETPOLINE=y
+CONFIG_MITIGATION_RETHUNK=y
+CONFIG_MITIGATION_SPECTRE_V1=y
+CONFIG_MITIGATION_SPECTRE_V2=y
+CONFIG_MITIGATION_SPECTRE_BHI=y
+CONFIG_MITIGATION_SSB=y
+CONFIG_MITIGATION_MDS=y
+CONFIG_MITIGATION_TAA=y
+CONFIG_MITIGATION_MMIO_STALE_DATA=y
+CONFIG_MITIGATION_L1TF=y
+CONFIG_MITIGATION_SRBDS=y
+CONFIG_MITIGATION_GDS=y
+CONFIG_MITIGATION_RFDS=y
+CONFIG_MITIGATION_ITS=y

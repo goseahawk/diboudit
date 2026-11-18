@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2206  # $SUDO is intentionally empty or one word
-# doit.sh — run all of Phase 0 on your Linux machine, start to finish.
+# doit.sh — build everything up to the current phase on your Linux machine.
 #
 #   ./doit.sh
 #
@@ -10,8 +10,11 @@
 #   3. pins every source download (sha256)
 #   4. builds the cross compiler             (the long part: ~20-60 minutes)
 #   5. tests the cross compiler
-#   6. boots a test disk image in QEMU       (uses your own Linux kernel as a stand-in)
-#   7. offers to commit + push the pinned checksums to GitHub
+#   6. builds the kernel                      (~3-10 minutes)
+#   7. builds the disk image
+#   8. boots the image in QEMU and checks what it reports
+#   9. offers to write the image to a USB stick for the Mac (asks twice)
+#  10. offers to commit + push the pinned checksums to GitHub
 #
 # Everything is also written to build/doit.log — send that file to Claude.
 # Safe to run again: finished steps are skipped.
@@ -31,21 +34,21 @@ fail()  {
 }
 ask()   { local a; read -r -p "$1 [y/N] " a </dev/tty; [[ $a == [yY]* ]]; }
 
-echo "mbaos Phase 0 — $(date -u '+%Y-%m-%d %H:%M UTC') — $(uname -srm)"
+echo "mbaos (up to Phase 1) — $(date -u '+%Y-%m-%d %H:%M UTC') — $(uname -srm)"
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || fail "This needs a 64-bit x86 Linux machine (got $(uname -sm))."
 SUDO=; [[ $EUID -ne 0 ]] && SUDO=sudo
 
 # ---- 1. build tools ---------------------------------------------------------------
-step "1/7: build tools"
+step "1/10: build tools"
 if ! bash ./build.sh check-host >/dev/null 2>&1; then
 	if   command -v apt-get >/dev/null; then
-		cmd=($SUDO apt-get install -y build-essential bison flex gawk texinfo m4 perl python3 bc rsync xz-utils curl gpgv gnupg patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 ovmf file)
+		cmd=($SUDO apt-get install -y build-essential bison flex gawk texinfo m4 perl python3 bc rsync xz-utils curl gpgv gnupg patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 ovmf file lz4 libelf-dev)
 		pre=($SUDO apt-get update)
 	elif command -v pacman >/dev/null; then
-		cmd=($SUDO pacman -S --needed --noconfirm base-devel bison flex gawk texinfo perl python bc rsync xz curl gnupg patch gptfdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file)
+		cmd=($SUDO pacman -S --needed --noconfirm base-devel bison flex gawk texinfo perl python bc rsync xz curl gnupg patch gptfdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file lz4 libelf)
 		pre=(true)
 	elif command -v dnf >/dev/null; then
-		cmd=($SUDO dnf install -y gcc gcc-c++ make bison flex gawk texinfo m4 perl python3 bc rsync xz curl gnupg2 patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file)
+		cmd=($SUDO dnf install -y gcc gcc-c++ make bison flex gawk texinfo m4 perl python3 bc rsync xz curl gnupg2 patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file lz4 elfutils-libelf-devel)
 		pre=(true)
 	else
 		bash ./build.sh check-host
@@ -60,7 +63,7 @@ bash ./build.sh check-host || fail "Build tools still missing (see above)."
 ok "build tools present"
 
 # ---- 2. signing keys --------------------------------------------------------------
-step "2/7: upstream signing keys"
+step "2/10: upstream signing keys"
 if [[ -s keys/trusted.gpg ]]; then
 	ok "already have keys/trusted.gpg"
 else
@@ -78,44 +81,53 @@ EOF
 fi
 
 # ---- 3. pin sources ---------------------------------------------------------------
-step "3/7: pin source downloads (verify signatures, record sha256)"
+step "3/10: pin source downloads (verify signatures, record sha256)"
 bash ./build.sh lock || fail "Pinning sources failed."
 ok "all sources pinned in sources.lock"
 
 # ---- 4+5. toolchain + smoke test ----------------------------------------------------
-step "4/7: build the cross compiler (long: get a coffee)"
+step "4/10: build the cross compiler (long: get a coffee)"
 start=$SECONDS
 bash ./build.sh fetch     || fail "Downloading sources failed."
 bash ./build.sh toolchain || fail "Cross compiler build failed. The logs named above have the details."
 ok "cross compiler built in $(( (SECONDS-start)/60 )) min"
 
-step "5/7: test the cross compiler"
+step "5/10: test the cross compiler"
 bash ./build.sh smoke || fail "Cross compiler test failed."
 ok "cross compiler passes every check"
 
-# ---- 6. harness self-test -----------------------------------------------------------
-step "6/7: disk image + QEMU boot test"
-K=build/host-kernel
-# Debian/Ubuntu/Fedora: /boot/vmlinuz-<release>; Arch: /boot/vmlinuz-linux* and a
-# world-readable copy in /lib/modules/<release>/vmlinuz.
-kv=
-for c in "/lib/modules/$(uname -r)/vmlinuz" "/boot/vmlinuz-$(uname -r)" /boot/vmlinuz-linux /boot/vmlinuz-linux-lts /boot/vmlinuz; do
-	[[ -e $c ]] && { kv=$c; break; }
-done
-if [[ ! -s $K && -n $kv ]]; then
-	if   [[ -r $kv ]]; then cp "$kv" "$K"
-	else echo "Reading your kernel ($kv) needs sudo."; $SUDO cat "$kv" > "$K" || rm -f "$K"
-	fi
-fi
-if [[ -s $K ]] && file -L "$K" | grep -q 'Linux kernel'; then
-	bash ./build.sh harness-selftest KERNEL="$K" || fail "QEMU boot test failed."
-	ok "QEMU boot test passed (screenshot: build/selftest/disk-screen.png)"
+# ---- 6-8. kernel, image, QEMU boot test -------------------------------------------
+step "6/10: build the kernel"
+bash ./build.sh kernel || fail "Kernel build failed."
+ok "kernel built: build/kernel/bzImage"
+
+step "7/10: build the disk image"
+bash ./build.sh rootfs && bash ./build.sh image || fail "Disk image build failed."
+ok "disk image: build/mbaos.img"
+
+step "8/10: boot the image in QEMU (the same way the Mac will)"
+bash ./build.sh test || fail "QEMU boot test failed."
+ok "QEMU boot test passed (screenshot: build/phase1/screen.png)"
+
+# ---- 9. USB stick (optional) ---------------------------------------------------------
+step "9/10: USB stick for the Mac (optional)"
+usb=$(lsblk -dnpo NAME,TRAN,SIZE,MODEL 2>/dev/null | awk '$2=="usb"')
+if [[ -z $usb ]]; then
+	echo "No USB stick plugged in. Skipping. Later: plug one in and run ./doit.sh again,"
+	echo "or: ./build.sh usb /dev/sdX"
 else
-	printf '%s! skipped:%s no readable host kernel found (not a problem; Phase 1 builds our own)\n' "$Y" "$N"
+	echo "USB disks found (everything on the one you pick will be ERASED):"
+	echo "$usb" | sed 's/^/    /'
+	if ask "Write the image to one of these now?"; then
+		read -r -p "Device path (e.g. /dev/sdb): " dev </dev/tty
+		bash ./build.sh usb "$dev" || printf '%s! USB write did not happen%s (see above)\n' "$Y" "$N"
+	else
+		echo "Skipped. Later: ./build.sh usb /dev/sdX"
+	fi
 fi
 
 # ---- 7. save pinned checksums to GitHub ----------------------------------------------
-step "7/7: save the pinned checksums to GitHub"
+step "10/10: save the pinned checksums to GitHub"
 if git rev-parse --git-dir >/dev/null 2>&1 && [[ -n $(git status --porcelain -- sources.lock keys/) ]]; then
 	git --no-pager diff --stat -- sources.lock keys/ 2>/dev/null
 	if ! git config user.name >/dev/null || ! git config user.email >/dev/null; then
@@ -133,4 +145,4 @@ else
 	ok "nothing new to commit"
 fi
 
-printf '\n%s━━━ PHASE 0 DONE ━━━%s\nSend this file to Claude:  %s\n' "$G" "$N" "$LOG"
+printf '\n%s━━━ ALL DONE (up to Phase 1) ━━━%s\nSend this file to Claude:  %s\n' "$G" "$N" "$LOG"

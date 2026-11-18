@@ -64,16 +64,20 @@ if [[ -n $DISK ]]; then
 fi
 [[ -n $KERNEL ]] && args+=(-kernel "$KERNEL" -append "$APPEND")
 if [[ $GUI == 1 ]]; then args+=(-display gtk); else args+=(-display none -vga std); fi
+# With a screenshot requested, a guest power-off pauses the VM instead of
+# exiting QEMU, so the final screen can still be captured.
+if [[ -n $SHOT ]]; then args+=(-no-shutdown); rm -f "$SHOT" "$Q/screen.ppm"; fi
 
 monitor() { python3 -I -c 'import socket,sys,time
 s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall((sys.argv[2]+"\n").encode()); time.sleep(1); s.close()' "$MON" "$1"; }
 
 finish() {
 	if [[ -n $SHOT && -S $MON ]]; then
-		monitor "screendump $Q/screen.ppm" && python3 -I "$TOP/scripts/ppm2png.py" "$Q/screen.ppm" "$SHOT" \
-			&& log "screendump: $SHOT"
+		monitor "screendump $Q/screen.ppm" && [[ -s $Q/screen.ppm ]] \
+			&& python3 -I "$TOP/scripts/ppm2png.py" "$Q/screen.ppm" "$SHOT" && log "screendump: $SHOT"
 	fi
 	[[ -f $PIDF ]] && kill "$(cat "$PIDF")" 2>/dev/null || true
+	if [[ -n $SHOT && ! -s $SHOT ]]; then warn "NO screenshot captured ($SHOT does not exist)"; fi
 }
 
 if [[ -z $EXPECT && -z $SHOT ]]; then

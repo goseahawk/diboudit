@@ -92,7 +92,7 @@ stamp_done gcc1 || {
 stamp_done linux-headers || {
 	s=$(unpack linux)
 	log "linux: headers_install into sysroot"
-	make -C "$s" ARCH=x86_64 INSTALL_HDR_PATH="$SYSROOT/usr" headers_install >"$BUILD/linux-headers.log" 2>&1 \
+	make -C "$s" O="$OBJ/linux-headers" ARCH=x86_64 INSTALL_HDR_PATH="$SYSROOT/usr" headers_install >"$BUILD/linux-headers.log" 2>&1 \
 	  || die "linux headers failed — see $BUILD/linux-headers.log"
 	stamp linux-headers
 }

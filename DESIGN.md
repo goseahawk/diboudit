@@ -215,3 +215,144 @@ Drop the patches once musl 1.2.7 is released and pinned.
 toolchain, smoke test, harness self-test, then commits the pins. It logs
 everything to `build/doit.log`. It stops for exactly two human decisions:
 installing packages with sudo, and confirming the signing-key fingerprints.
+
+---
+
+## Phase 1 — kernel
+
+### 1.1 Goal and deliverable
+
+Our own Linux 7.3.5, configured for this machine only, booted the way the Mac
+boots it: firmware → `\EFI\BOOT\BOOTX64.EFI` (the kernel's EFI stub) → built-in
+command line → root partition by GPT GUID → `/sbin/init`. In QEMU and on the
+Mac from a USB stick. Boot time measured.
+
+`/sbin/init` is **`bootprobe`** (`tests/bootprobe.c`), a **stand-in, not the
+real init**. It is built with our musl toolchain (so it proves that toolchain
+works on the target), reports what the kernel found and how long boot took,
+and then waits so you can read the screen. In QEMU it powers off so tests
+finish. Phase 2 replaces it with our init.
+
+### 1.2 Configuration method (`config/kernel.fragment`, `scripts/kernel.sh`)
+
+* `make allnoconfig KCONFIG_ALLCONFIG=config/kernel.fragment`: every option
+  starts OFF; the fragment turns on exactly what this machine needs, with a
+  comment for each group and a phase tag.
+* **Verified, not hoped for.** Kconfig silently drops an option whose
+  dependencies are unmet or whose name changed. `kernel.sh` checks that every
+  fragment line is in the final `.config` and fails otherwise. On the first run
+  that caught six problems: renamed `RANDOM_KMALLOC_CACHES`, `HID` needing
+  `HID_SUPPORT`, `HID_APPLE` needing the LED class, `SECCOMP_FILTER` needing
+  networking, and vendor selection needing `EXPERT`.
+* The fully resolved config is committed as `config/kernel.resolved.config`,
+  so every change to what is in the kernel shows up in review.
+* **No `CONFIG_EXPERT`.** Combined with `allnoconfig` it silently removes
+  dozens of standard features (PCI quirks, `madvise`, …). The cost is keeping
+  support code for other CPU vendors (~50 KB).
+* **Built with our own GCC 16.2** (`CROSS_COMPILE=x86_64-mba-linux-musl-`) and
+  `KCFLAGS=-march=broadwell`. The kernel then does not depend on the host
+  compiler, and the build is reproducible: fixed `KBUILD_BUILD_TIMESTAMP`,
+  user and host. A clean rebuild gives a bit-identical `bzImage`.
+* **No modules** (`CONFIG_MODULES=n`): nothing to load, nothing to sign, no
+  module-loading attack surface. Revisited in Phase 4: broadcom-wl is
+  out-of-tree and needs modules (or patching into the tree).
+* **No initramfs** until full-disk encryption needs one (Phase 6).
+* **Compression: LZ4**, the fastest to decompress. Measured against zstd and
+  gzip in Phase 7.
+
+### 1.3 Boot path and command line
+
+Apple's firmware passes **no arguments** to `BOOTX64.EFI`, so the command line
+is built in:
+
+```
+root=PARTUUID=6d62616f-7300-4000-8000-000000000003 rootfstype=ext4 rootwait ro
+console=ttyS0,115200 console=tty0 printk.devkmsg=on
+```
+
+* Root by **partition GUID**, which `mkimage.sh` sets (`ROOT_PART_GUID`).
+  `kernel.sh` refuses to build if the two disagree. Device names (`sda`/`sdb`)
+  differ between the USB stick and the internal SSD; the GUID does not.
+* `rootwait`: a USB stick enumerates after the kernel is ready to mount root.
+* `console=tty0` is listed last, so `/dev/console` is the screen (the Mac has
+  no serial port); `ttyS0` is for QEMU.
+* Arguments from a boot loader (QEMU `-append`) are **appended**.
+  `CMDLINE_OVERRIDE` (ignore them, so nobody can change the command line from
+  the firmware) comes with the lockdown/verified-boot work in Phase 6.
+* Display: the firmware's GOP framebuffer through `simpledrm` + fbcon until
+  i915 takes over in Phase 3. Legacy `/dev/fb0` (`FB_DEVICE`) is off.
+
+### 1.4 Hardening
+
+Kernel lockdown is forced to **integrity** mode from early boot: no
+`/dev/mem`, no unsigned kexec, no `iopl`/`ioperm`, no MSR writes from user
+space, no ACPI table overrides. Also enabled: KASLR (base and memory regions),
+`VMAP_STACK`, strong stack protector, zero-initialised stack variables,
+hardened usercopy, `FORTIFY_SOURCE`, slab freelist randomisation and
+hardening, partitioned kmalloc caches, page allocator shuffling, list
+hardening, `BUG_ON_DATA_CORRUPTION`, no legacy vsyscall, no `/dev/mem`, no
+kexec, no hibernation.
+
+### 1.5 CPU vulnerability mitigations
+
+**Policy:** build in every mitigation that applies to Intel CPUs and let the
+kernel choose at runtime from the CPU model and microcode. `allnoconfig`
+otherwise turns each one off individually: the first test boot reported
+Spectre v1/v2, MDS and SSB as *Vulnerable*, and the boot probe caught it.
+
+Left out on purpose: AMD-only (IBPB_ENTRY, SRSO, TSA), KVM-only (VMSCAPE),
+SLS (AMD-motivated compile-time padding), and the Skylake Retbleed defences
+(call-depth tracking, IBRS on entry). Broadwell is not affected by Retbleed.
+
+**SMT stays on.** MDS can leak between the two hyperthreads of a core, and
+the strict fix is `nosmt`, which costs a quarter to a third of multi-threaded
+throughput. This machine runs no VMs and no other users' code; browser
+JavaScript is the realistic attacker, and browsers have their own
+mitigations. Revisit if that changes.
+
+**Microcode:** MDS (`MD_CLEAR`) and SSB (`SSBD`) need microcode features. The
+Mac's firmware loads whatever microcode Apple last shipped. Phase 3 pins
+Intel's microcode as a verified source and builds it into the kernel.
+
+QEMU's Broadwell model lacks those microcode features, so in QEMU exactly
+two lines say *Vulnerable* (MDS, SSB). The test allows only those two. In
+QEMU (TCG) the rest read: Meltdown: PTI; Spectre v1: usercopy/swapgs
+barriers; Spectre v2: retpolines; ITS: aligned thunks; L1TF: PTE inversion.
+
+### 1.6 Measuring boot time
+
+`bootprobe` records two clocks the moment it starts:
+
+* **kernel → init**: `CLOCK_BOOTTIME`, from the kernel's start.
+* **CPU reset → init**: the TSC divided by its measured frequency. The TSC
+  counts from zero when the CPU comes out of reset, so this **includes
+  firmware time**. Firmware ≈ the difference. Not captured: the time between
+  pressing the power button and CPU reset (power sequencing in the SMC).
+
+Notes for the Mac: holding Option and sitting in the boot picker counts as
+firmware time. For a true number, make the stick the default startup disk
+(see the Phase 1 checklist) and cold-boot without Option. Under a hypervisor
+the TSC is not reset at power-on, so the probe prints n/a.
+
+### 1.7 Verification record
+
+| Check | Result |
+|---|---|
+| Fragment fully present in final config | verified by `kernel.sh` on every build |
+| Kernel build reproducible (clean rebuild, `cmp`) | ok: bit-identical bzImage |
+| Whole disk image reproducible (`repro-check`) | ok |
+| QEMU: firmware starts `BOOTX64.EFI` from our disk | ok |
+| QEMU: our kernel boots with the built-in command line | ok |
+| QEMU: root mounted read-only by PARTUUID; init = boot probe | ok |
+| QEMU: lockdown `[integrity]`, 4 CPUs, DMI, AHCI disk, DRM console | ok |
+| QEMU: no kernel warnings/oopses; no unexpected *Vulnerable* | ok |
+| Mac: boots from USB, report on screen, timings | **to do: needs you** |
+
+### 1.8 Measurements
+
+| Metric | QEMU TCG (this container) | Mac (USB stick) |
+|---|---|---|
+| bzImage size | 5.4 MiB (LZ4) | same image |
+| kernel start → init | 1.63 s (emulated CPU; not representative) | — |
+| CPU reset → init | n/a (hypervisor) | — |
+| memory used at init | 69 MiB of 3.9 GiB | — |

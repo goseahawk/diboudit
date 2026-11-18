@@ -1,0 +1,2 @@
+date,commit,env,boot_to_login_s,idle_mem_used_mib,irq_per_s,timer_irq_per_s,ctxt_per_s,procs,user_procs
+2026-11-18 21:00,c82b053+,qemu-tcg,2.204,64.7,1089,1044,26,80,8

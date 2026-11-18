@@ -43,5 +43,6 @@ check "GNU_RELRO segment"             "$READELF -l hello-dyn | grep -q GNU_RELRO
 check "non-executable stack"          "$READELF -lW hello-dyn | awk '/GNU_STACK/{print \$7}' | grep -qx RW"
 check "no RWX segments (W^X)"         "! $READELF -lW hello-dyn | awk '/LOAD/{print \$7}' | grep -q RWE"
 check "stack protector emitted"       "$READELF -sW hello-dyn | grep -q __stack_chk_fail"
+check "hardened even without our flags"  "$CC hello.c -o hello-plain && $READELF -d hello-plain | grep -Eq 'BIND_NOW|FLAGS.*NOW' && $READELF -l hello-plain | grep -q GNU_RELRO && $READELF -h hello-plain | grep -q DYN"
 check "deterministic: rebuild same"   "$CC $CFLAGS hello.c -o hello-dyn2 $LDFLAGS && cmp -s hello-dyn hello-dyn2"
 exit $fail

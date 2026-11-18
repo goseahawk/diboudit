@@ -1,0 +1,21 @@
+#!/bin/sh
+# /etc/rc — boot stage 1. init runs this once, before any service starts.
+# Everything here is on the boot critical path: keep it short.
+export PATH=/usr/sbin:/usr/bin
+fail=0
+step() { "$@" || { echo "rc: FAILED: $*"; fail=1; }; }
+
+# Root was mounted read-only by the kernel. No fsck yet (BusyBox has no ext4
+# checker; e2fsprogs arrives in Phase 3). The ext4 journal covers crashes.
+step mount -o remount,rw,noatime /
+step mount -a                                   # /etc/fstab
+for f in fd:/proc/self/fd stdin:fd/0 stdout:fd/1 stderr:fd/2; do
+	ln -sfn "${f#*:}" "/dev/${f%%:*}"           # devtmpfs does not create these
+done
+step hostname -F /etc/hostname
+step sysctl -q -p /etc/sysctl.conf
+# From here on the console shows only notices and worse (init's own messages
+# are notices), so service output does not land on top of the login prompt.
+# Everything stays in `dmesg`.
+step dmesg -n 6
+exit $fail

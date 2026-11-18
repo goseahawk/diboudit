@@ -1,0 +1,27 @@
+#!/bin/sh
+# shellcheck disable=SC2046  # word splitting of sample output is intended
+# Idle measurement, once per boot. Waits for the system to settle, then samples
+# 10 s of idle. Writes /run/metrics (and the serial console when present).
+#   boot_to_login_s   seconds from kernel start until getty on tty1 started
+#   idle_mem_used_mib MemTotal - MemAvailable
+#   irq_per_s         interrupts per second, all sources (the main source of wakeups)
+#   timer_irq_per_s   of which local-timer (scheduler tick) interrupts, all CPUs
+#   ctxt_per_s        context switches per second
+#   procs             processes (kernel threads included); user_procs: excluding them
+sleep 20
+sample() {
+	awk '/^intr /{i=$2} /^ctxt /{c=$2} END{printf "%s %s ", i, c}' /proc/stat
+	awk '$1=="LOC:" {for (k=2; k<=NF && $k ~ /^[0-9]+$/; k++) s+=$k} END{print s}' /proc/interrupts
+}
+set -- $(sample); i0=$1 c0=$2 l0=$3
+sleep 10
+set -- $(sample); i1=$1 c1=$2 l1=$3
+used=$(awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{printf "%.1f", (t-a)/1024}' /proc/meminfo)
+procs=$(ls -d /proc/[0-9]* | wc -l)
+user=$(grep -l '^Kthread:[[:space:]]*0' /proc/[0-9]*/status 2>/dev/null | wc -l)
+login=$(cut -d' ' -f3 /run/sv/getty-tty1 2>/dev/null)
+line="mbaos-metrics boot_to_login_s=${login:-?} idle_mem_used_mib=$used irq_per_s=$(( (i1 - i0) / 10 )) timer_irq_per_s=$(( (l1 - l0) / 10 )) ctxt_per_s=$(( (c1 - c0) / 10 )) procs=$procs user_procs=$user"
+echo "$line" > /run/metrics
+echo "$line"                                   # -> kernel log via svd
+stty -F /dev/ttyS0 >/dev/null 2>&1 && echo "$line" > /dev/ttyS0
+exit 100

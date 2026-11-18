@@ -12,12 +12,17 @@ build.sh               single entry point (./build.sh help lists commands)
 config/target.conf     machine, flags, fixed IDs for reproducibility
 config/kernel.fragment the kernel config: allnoconfig + exactly these options (checked)
 config/kernel.resolved.config  the full resulting kernel config, for review
+config/busybox.fragment BusyBox: allnoconfig + exactly these applets (checked)
+rootfs/                plain-text system configuration, copied into the image as-is
+src/init/              our init (PID 1), svd (service supervisor), sv (control)
+src/tools/             bootreport
+metrics/history.csv    boot time / idle RAM / wakeups per test run
 sources.lock           pinned versions + sha256 of every upstream source
 keys/                  upstream signing keyring + record of who signed what
 patches/<name>/        patches applied automatically after unpacking
 scripts/               fetch, lock, toolchain, mkimage, qemu, write-usb
-tests/                 toolchain smoke test, harness self-test, bootprobe (Phase 1 stand-in init), phase1-boot test
+tests/                 toolchain smoke test, harness self-test, phase2-boot.py (QEMU acceptance test)
 build/  sources/       outputs and download cache (not committed)
 ```
 
-Status: **Phase 1** (kernel). Phase 0 complete. See DESIGN.md §1.7 for what has been verified.
+Status: **Phase 2** (base system: our init, BusyBox, login). Phases 0-1 complete. See DESIGN.md §2.9.

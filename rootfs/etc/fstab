@@ -1,0 +1,5 @@
+# /etc/fstab — mounted by `mount -a` in /etc/rc.
+# / is mounted by the kernel (root=PARTUUID=... in its built-in command line);
+# /proc, /sys, /dev, /dev/pts, /dev/shm and /run are mounted by init.
+# <source>  <mountpoint>  <type>  <options>                          <dump> <pass>
+tmpfs       /tmp          tmpfs   nosuid,nodev,mode=1777,size=25%     0      0

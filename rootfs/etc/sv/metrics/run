@@ -1,0 +1,3 @@
+#!/bin/sh
+# One idle measurement per boot (then exits 100: done, do not restart).
+exec /usr/libexec/mbaos/metrics

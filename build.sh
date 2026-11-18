@@ -7,13 +7,15 @@
 #   ./build.sh keys            build keys/trusted.gpg (upstream signing keys; asks you to cross-check)
 #   ./build.sh lock [NAME..]   pin sources: verify GPG signature, record sha256
 #   ./build.sh fetch [NAME..]  download + sha256-verify pinned sources
+#   ./build.sh verify-sigs     re-verify every pinned source's signature against keys/trusted.gpg
 #   ./build.sh toolchain       build the musl cross toolchain into build/tools
 #   ./build.sh smoke           test the toolchain (hardening, musl, Broadwell)
 #   ./build.sh kernel          configure (allnoconfig + config/kernel.fragment), verify, build
 #   ./build.sh kernel-config   only regenerate + verify config/kernel.resolved.config
-#   ./build.sh rootfs          assemble build/rootfs (Phase 1: the boot probe as /sbin/init)
+#   ./build.sh busybox         configure (allnoconfig + config/busybox.fragment), verify, build
+#   ./build.sh rootfs          assemble build/rootfs: musl, BusyBox, init/svd, rootfs/ config
 #   ./build.sh image           build build/mbaos.img (our kernel + rootfs; KERNEL=F overrides)
-#   ./build.sh test            Phase 1 acceptance test: boot the image in QEMU, check the report
+#   ./build.sh test            acceptance test in QEMU: first-boot setup, login, services, shutdown, reboot
 #   ./build.sh usb /dev/sdX    write build/mbaos.img to a USB stick (guarded, asks first)
 #   ./build.sh qemu [ARGS]     boot build/mbaos.img in QEMU/OVMF (args go to scripts/qemu.sh)
 #   ./build.sh repro-check KERNEL=F   build the image twice, compare sha256
@@ -39,14 +41,16 @@ check-host)  exec bash scripts/check-host.sh ;;
 keys)        exec bash scripts/import-keys.sh "$@" ;;
 lock)        exec bash scripts/lock.sh "$@" ;;
 fetch)       exec bash scripts/fetch.sh "$@" ;;
+verify-sigs) exec bash scripts/lock.sh --verify ;;
 toolchain)   exec bash scripts/toolchain.sh ;;
 smoke)       exec bash tests/toolchain-smoke.sh ;;
 kernel)      exec bash scripts/kernel.sh ;;
 kernel-config) exec bash scripts/kernel.sh --config ;;
+busybox)     exec bash scripts/busybox.sh ;;
 rootfs)      exec bash scripts/rootfs.sh ;;
 image)       need_kernel; [[ -d $BUILD/rootfs ]] || bash scripts/rootfs.sh
              exec bash scripts/mkimage.sh --kernel "$KERNEL" --rootfs "$BUILD/rootfs" --out "$IMG" "$@" ;;
-test)        exec bash tests/phase1-boot.sh ;;
+test)        exec python3 -I tests/phase2-boot.py ;;
 usb)         [[ -f $IMG ]] || die "no image; run ./build.sh image first"
              if [[ $EUID -eq 0 ]]; then exec bash scripts/write-usb.sh "$IMG" "${1:?usage: ./build.sh usb /dev/sdX}"
              else exec sudo bash scripts/write-usb.sh "$IMG" "${1:?usage: ./build.sh usb /dev/sdX}"; fi ;;
@@ -66,7 +70,10 @@ all)
 	bash scripts/fetch.sh
 	bash scripts/toolchain.sh
 	bash tests/toolchain-smoke.sh
-	if [[ -n ${KERNEL:-} ]]; then scripts/mkimage.sh --kernel "$KERNEL" --out "$IMG"
-	else log "Phase 0 complete. No kernel yet, so no disk image (Phase 1)."; fi ;;
-*) sed -n '2,27p' "$0"; exit 1 ;;
+	bash scripts/kernel.sh
+	bash scripts/busybox.sh
+	bash scripts/rootfs.sh
+	bash scripts/mkimage.sh --kernel "$BUILD/kernel/bzImage" --rootfs "$BUILD/rootfs" --out "$IMG"
+	log "built $IMG — test it with ./build.sh test" ;;
+*) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 1 ;;
 esac

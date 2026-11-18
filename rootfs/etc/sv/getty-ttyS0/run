@@ -1,0 +1,6 @@
+#!/bin/sh
+# Login prompt on the serial port, which only exists in QEMU. On the Mac the
+# port is absent: exit 100 tells svd not to restart this service.
+stty -F /dev/ttyS0 >/dev/null 2>&1 || exit 100
+[ -f /etc/mbaos/firstboot ] && /usr/libexec/mbaos/firstboot /dev/ttyS0
+exec /usr/sbin/getty -L 115200 ttyS0 vt100

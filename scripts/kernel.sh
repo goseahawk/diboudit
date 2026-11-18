@@ -42,26 +42,7 @@ mkdir -p "$OBJ"
 kmake -s KCONFIG_ALLCONFIG="$FRAG" allnoconfig >"$OBJ/config.log" 2>&1 \
 	|| die "kernel config failed — see $OBJ/config.log"
 
-# Every line of the fragment must survive exactly. Kconfig silently drops
-# options whose dependencies are unmet or whose names changed.
-missing=0
-while IFS= read -r line; do
-	case $line in
-	CONFIG_*=*)                 want=$line ;;
-	"# CONFIG_"*" is not set")  want=$line ;;
-	*) continue ;;
-	esac
-	sym=${want#\# }; sym=${sym%%[= ]*}
-	have=$(grep -E "^(# )?${sym}[= ]" "$OBJ/.config" || true)
-	if [[ $want == "#"* ]]; then
-		[[ -z $have || $have == "$want" ]] && continue
-	else
-		[[ $have == "$want" ]] && continue
-	fi
-	printf '  wanted: %s\n  got:    %s\n' "$want" "${have:-(absent: unknown symbol or unmet dependency)}" >&2
-	missing=1
-done < "$FRAG"
-(( missing == 0 )) || die "kernel config does not match kernel.fragment (see above)"
+kconfig_verify "$FRAG" "$OBJ/.config" || die "kernel config does not match kernel.fragment (see above)"
 log "config verified: every fragment option present"
 
 # Commit-friendly resolved config (drop the host-dependent compiler lines).

@@ -1,0 +1,33 @@
+#!/bin/sh
+# First-boot setup: set the root password, optionally create a user.
+# Started by every getty service while /etc/mbaos/firstboot exists. Each
+# console waits for Enter; the first console where someone presses it does the
+# setup (under a lock), the others notice it is done and fall through to login.
+tty=$1
+exec <"$tty" >"$tty" 2>&1
+flag=/etc/mbaos/firstboot
+printf '\nWelcome to mbaos. This is the first boot.\nPress Enter to set up this computer: '
+while [ -f "$flag" ]; do
+	# shellcheck disable=SC3045  # BusyBox ash supports read -t
+	read -r -t 1 _ || continue
+	exec 9>/run/firstboot.lock
+	flock 9
+	[ -f "$flag" ] || break
+	echo
+	echo "Choose a password for root, the administrator account."
+	until passwd root; do echo "Please try again."; done
+	printf '\nCreate a user account? Type a name (lowercase), or press Enter to skip: '
+	read -r name
+	if [ -n "$name" ]; then
+		if adduser -D -s /bin/sh "$name"; then
+			until passwd "$name"; do echo "Please try again."; done
+		else
+			echo "Could not create '$name'; you can run adduser later."
+		fi
+	fi
+	rm -f "$flag"
+	sync
+	echo
+	echo "Setup complete."
+done
+echo

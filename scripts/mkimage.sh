@@ -56,15 +56,16 @@ truncate -s $((ROOT_SIZE_MIB * MiB)) "$W/root.img"
 E2FSPROGS_FAKE_TIME=$SOURCE_DATE_EPOCH mkfs.ext4 -q -F -L mbaos-root \
 	-U "$ROOT_FS_UUID" -E "hash_seed=$ROOT_FS_HASH_SEED,root_owner=0:0" \
 	-d "$ROOTFS" "$W/root.img"
-# mkfs -d copies each file's ctime, which `touch` cannot set (it is the time the
-# file was copied here). Rewrite every inode's ctime so the image does not
-# depend on when it was built.
+# mkfs -d copies each file's owner and ctime from the build machine. Make every
+# file owned by root (a normal-user build would otherwise ship files, even
+# /etc/shadow, owned by that user's uid), and rewrite every ctime, which
+# `touch` cannot set, so the image does not depend on when it was built.
 if (cd "$ROOTFS" && find . -name '*[[:space:]\"]*' | grep -q .); then
 	die "rootfs contains paths with whitespace or quotes; not supported"
 fi
-(cd "$ROOTFS" && find . -mindepth 1) | sed "s|^\.\(.*\)|sif \1 ctime @$SOURCE_DATE_EPOCH|" \
-	| { echo "sif / ctime @$SOURCE_DATE_EPOCH"; cat; } \
-	| debugfs -w -f - "$W/root.img" >/dev/null 2>"$W/debugfs.log"
+(cd "$ROOTFS" && find . -mindepth 1) | sed 's|^\.||' | { echo /; cat; } \
+	| awk -v t="$SOURCE_DATE_EPOCH" '{ printf "sif %s uid 0\nsif %s gid 0\nsif %s ctime @%s\n", $0, $0, $0, t }' \
+	| E2FSPROGS_FAKE_TIME=$SOURCE_DATE_EPOCH debugfs -w -f - "$W/root.img" >/dev/null 2>"$W/debugfs.log"
 grep -qi 'error\|invalid\|not found' "$W/debugfs.log" && die "debugfs ctime fixup failed: $(cat "$W/debugfs.log")"
 
 # ---- GPT + assembly ---------------------------------------------------------------

@@ -21,3 +21,7 @@ musl      1.2.6    https://musl.libc.org/releases/musl-{v}.tar.gz  d585fd3b613c6
 # musl 1.2.6 + patches/musl/ (CVE-2026-107891 regcomp, CVE-2026-6042 iconv).
 # Kernel: kernel.org signs the *uncompressed* tarball; lock.sh handles .tar.sign.
 linux     7.3.5    https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-{v}.tar.xz  8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990  https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-{v}.tar.sign
+# BusyBox: signed by Denys Vlasenko's DSA-1024 key with SHA-1 (weak by today's
+# standards). Treat the signature as one channel; the sha256 is re-confirmed
+# independently on each build machine's own network by fetch.
+busybox   1.38.0   https://www.busybox.net/downloads/busybox-{v}.tar.bz2  34f9ea6ff8636f2c9241153b9114eefa9e65674a45318ae1ef95bb5f31c53bb2  https://www.busybox.net/downloads/busybox-{v}.tar.bz2.sig

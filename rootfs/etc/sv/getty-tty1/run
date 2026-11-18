@@ -1,0 +1,4 @@
+#!/bin/sh
+# Login prompt on the first virtual console (the Mac's screen).
+[ -f /etc/mbaos/firstboot ] && /usr/libexec/mbaos/firstboot /dev/tty1
+exec /usr/sbin/getty 38400 tty1 linux

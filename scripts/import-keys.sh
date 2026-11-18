@@ -29,6 +29,13 @@ log "musl signing key"
 bash "$TOP/scripts/fetch.sh" --download-only https://musl.libc.org/musl.pub "$G/musl.pub"
 gpg --batch --quiet --import "$G/musl.pub" || die "musl.pub did not import"
 
+log "BusyBox signing key (Denys Vlasenko), by full fingerprint from keyserver.ubuntu.com"
+BB_FPR=C9E9416F76E610DBD09D040F47B70C55ACC9965B
+bash "$TOP/scripts/fetch.sh" --download-only \
+	"https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$BB_FPR" "$G/busybox.asc"
+gpg --batch --quiet --import "$G/busybox.asc" || die "BusyBox key did not import"
+gpg --batch --list-keys "$BB_FPR" >/dev/null 2>&1 || die "keyserver returned a different key than $BB_FPR"
+
 log "kernel.org keys via WKD"
 # WKD by hand with curl rather than `gpg --locate-keys`: gpg's dirmngr does its
 # own DNS and ignores HTTPS proxies, so it fails on many networks.
@@ -54,9 +61,12 @@ echo
 echo "Keys for musl and the kernel — CROSS-CHECK these fingerprints now:"
 echo "  musl:   https://musl.libc.org/   (and the oss-security release announcements)"
 echo "  kernel: https://www.kernel.org/signature.html"
+echo "  busybox: https://busybox.net/ (signatures since 2006 use this key)"
 echo
 echo "--- musl ---"
 gpg --batch --show-keys --fingerprint "$G/musl.pub" | grep -E '^(pub|uid| )' | grep -v '^ *$'
+echo "--- busybox (old DSA-1024/SHA-1 key; see sources.lock) ---"
+gpg --batch --show-keys --fingerprint "$G/busybox.asc" | grep -E '^(pub|uid| )' | grep -v '^ *$'
 echo "--- kernel ---"
 gpg --batch --export torvalds@kernel.org gregkh@kernel.org > "$G/kernel.gpg"
 gpg --batch --show-keys --fingerprint "$G/kernel.gpg" | grep -E '^(pub|uid| )' | grep -v '^ *$'

@@ -382,3 +382,192 @@ First Mac boot, where the 4.39 s went (from the photo of the screen):
 * `vmscape: Vulnerable` appears on the Mac (not in QEMU). VMSCAPE is a
   guest-to-host attack on KVM hosts; this kernel has no KVM, so it does not
   apply.
+
+---
+
+## Phase 2 — base system
+
+### 2.1 Goal and deliverable
+
+Boot to a login prompt on our own init, with BusyBox as the userland, a
+first-boot setup instead of a default password, clean shutdown, and the
+metrics we track from now on. Tested end to end in QEMU over the serial
+console (`./build.sh test`, 23 checks).
+
+### 2.2 Init: two small programs, not one
+
+| Program | Role | Size of the job |
+|---|---|---|
+| `init` (PID 1, `src/init/init.c`) | mount API filesystems, run `/etc/rc` once, start `svd` and restart it if it dies, reap zombies, shut down | must never fail: a PID 1 crash panics the kernel |
+| `svd` (`src/init/svd.c`) | start every service in `/etc/sv/*` in parallel, restart them, log their output | can be restarted by init |
+| `sv` (`src/init/sv`, shell) | `sv status`, `restart`, `stop`, `start` | — |
+
+Both C programs are **static-pie**, so PID 1 and the supervisor keep working
+even if the dynamic loader or libc on disk is damaged. (The first build linked
+them dynamically: `-pie` in LDFLAGS overrode `-static-pie`. The `file` check
+in the build caught it.)
+
+**Boot sequence.** Kernel → `init`: mounts `/proc /sys /dev/pts /dev/shm /run`
+→ runs `/etc/rc` (plain shell: remount `/` read-write with `noatime`,
+`mount -a`, hostname, sysctl, console log level) → starts `svd` → `svd` starts
+all services at once.
+
+**Parallelism without a dependency graph.** Every service starts immediately.
+A service that needs another waits for it itself (runit/s6 style). There is no
+ordering metadata to get wrong, and nothing waits on anything that does not
+matter to it.
+
+**Zombies.** Orphaned processes are re-parented to PID 1, which reaps every
+exited child in its single `sigwaitinfo` loop. Tested: an orphan is re-parented
+to PID 1 and is gone after it exits; the test also checks that no zombie
+exists anywhere on the system.
+
+**Restarts.** If `run` exits, `svd` restarts it: immediately if it ran for
+10 s or more, otherwise after 1, 2, 4 … 60 s. A crashing service cannot spin
+the CPU (tested: an always-failing service restarts 2–5 times in 9 s, not
+thousands). Exit status 100 means "done, do not restart" (one-shot jobs, or the
+serial getty when there is no serial port, as on the Mac). If `svd` itself
+dies, `init` restarts it after 1 s; after five quick deaths in a row it opens a
+rescue shell on the console.
+
+**Shutdown.** BusyBox's `poweroff` / `reboot` / `halt` signal PID 1
+(`SIGUSR2` / `SIGTERM` / `SIGUSR1`); Ctrl-Alt-Del sends `SIGINT` (reboot).
+Then:
+
+1. `svd` stops all services: `SIGTERM` and `SIGHUP` to each service's
+   process group, 3 s grace, `SIGKILL`. (`SIGHUP` because a logged-in
+   interactive shell ignores `SIGTERM`; without it every shutdown with someone
+   logged in waited the full 3 s.)
+2. `init` sends `SIGTERM` to every remaining process, waits up to 2 s, then
+   `SIGKILL`.
+3. `sync`, remount `/` read-only, `sync`, `reboot(2)`.
+
+Tested: poweroff prints "root filesystem remounted read-only" and the next
+boot shows no ext4 journal recovery.
+
+**Logging.** Service output goes through `svd` to the kernel log as
+`NAME: line`, so `dmesg` is the one log. There is no syslog daemon to justify.
+After boot, `/etc/rc` sets the console to show notices and worse: init's own
+messages (notices) stay visible, service chatter does not land on the login
+prompt.
+
+### 2.3 Services at the end of Phase 2
+
+| Service | Why it exists |
+|---|---|
+| `getty-tty1` | login prompt on the Mac's screen |
+| `getty-ttyS0` | serial login in QEMU; exits 100 (retires) where there is no UART, i.e. on the Mac |
+| `metrics` | one idle measurement per boot, then exits 100 |
+
+Running user processes at idle: 8 (init, svd, 2 gettys, plus the service
+shells), measured.
+
+### 2.4 Userland: BusyBox 1.38.0
+
+Configured exactly like the kernel: `allnoconfig` plus `config/busybox.fragment`,
+verified line by line. BusyBox's older kconfig ignores `KCONFIG_ALLCONFIG`, so
+the fragment is overlaid onto the `allnoconfig` result and `oldconfig` resolves
+dependencies; the verifier still proves that every value survived. That caught:
+
+* `SYSCTL` is called `BB_SYSCTL` in BusyBox.
+* `allnoconfig` sets `LAST_ID`, `FIRST_SYSTEM_ID` and `LAST_SYSTEM_ID` to 0,
+  which made the first user **uid 1**, a system id. Found by the test
+  (`id alice`), fixed: system ids 100–999, users from 1000.
+
+111 applets, 361 KiB, dynamically linked against musl (one shared libc for
+everything we ship). Reproducible: a clean rebuild is bit-identical.
+
+**Signature caveat.** BusyBox releases are signed with Denys Vlasenko's
+**DSA-1024 key from 2006, using SHA-1**: weak by today's standards. The key is
+in `./build.sh keys` (fingerprint shown for you to confirm) and the tarball's
+sha256 is re-confirmed on every build machine's own network.
+
+### 2.5 Layout and configuration
+
+Merged `/usr`: `/bin`, `/sbin` and `/lib` are symlinks into `/usr`. musl's
+`libc.so` is also the dynamic loader (`/lib/ld-musl-x86_64.so.1`). Plain-text
+configuration lives in the repo under `rootfs/` and is copied verbatim:
+
+`/etc/rc`, `/etc/fstab` (`/tmp` as tmpfs), `/etc/sysctl.conf` (kptr and dmesg
+restriction, Yama ptrace scope 1, protected links/fifos/regular files, no
+suid core dumps), `/etc/passwd` / `group` / `shadow`, `/etc/profile`,
+`/etc/sv/*/run`, `/usr/libexec/mbaos/{firstboot,metrics}`.
+
+**Ownership.** `mkfs.ext4 -d` copies file owners from the build machine. A
+normal-user build would ship every file, `/etc/shadow` included, owned by that
+user's uid. `mkimage.sh` now forces every inode to root (via `debugfs`), and
+the test checks owner and mode of `/etc/shadow`, `busybox` and `init`.
+
+### 2.6 First boot instead of a default password
+
+The image ships with root **locked** (`!` in `/etc/shadow`), so it stays
+reproducible and there is no default password. While `/etc/mbaos/firstboot`
+exists, every getty first runs `/usr/libexec/mbaos/firstboot`: it waits for
+Enter, then, under a lock so that only one console does it, asks for a root
+password and optionally a user name, creates the user, removes the flag, and
+continues to the normal login prompt. First boot writes to the root
+filesystem, i.e. to the USB stick, never to the internal SSD.
+
+### 2.7 Hardening changes
+
+* **Full RELRO, BIND_NOW and a non-executable stack are now compiler
+  defaults.** The toolchain's `specs` file adds `-z relro -z now -z
+  noexecstack` to every link, so a package that ignores our LDFLAGS is still
+  hardened (new smoke-test check: built with no flags at all).
+* Kernel: `SECCOMP_FILTER` (needs `CONFIG_NET`, now on with Unix sockets
+  only), Yama.
+* **`_FORTIFY_SOURCE` remains a stub.** fortify-headers could not be pinned
+  from a signed or otherwise verifiable source from here. Not pinning
+  something unverified is the better trade-off; revisit when packages arrive
+  (Phase 6).
+* **No fsck yet.** BusyBox has no ext4 checker. The ext4 journal makes crashes
+  safe; e2fsprogs (with `e2fsck`) is planned for Phase 3.
+
+### 2.8 Metrics, tracked from now on
+
+`/usr/libexec/mbaos/metrics` runs once per boot: waits 20 s, samples 10 s of
+idle, writes `/run/metrics` (and the serial console in QEMU). `./build.sh test`
+appends boot 2's numbers to `metrics/history.csv` and **flags regressions**
+against the previous run in the same environment (qemu-tcg, qemu-kvm, mac).
+On the Mac: `cat /run/metrics`, and `bootreport` for the boot timeline.
+
+| Metric | Meaning | Regression flag when worse by |
+|---|---|---|
+| `boot_to_login_s` | kernel start → getty on tty1 started | 20 % and 0.3 s |
+| `idle_mem_used_mib` | MemTotal − MemAvailable | 10 % and 5 MiB |
+| `irq_per_s` / `timer_irq_per_s` | interrupts/s, and local-timer ticks among them | 50 % and 20/s |
+| `ctxt_per_s` | context switches/s | 50 % and 20/s |
+| `user_procs` | non-kernel processes | +1 |
+
+Input latency needs a display stack; it starts in Phase 5.
+
+**Open question: timer interrupts.** In QEMU (TCG), the idle system takes
+~1000 local-timer interrupts per second, ~250/s on each of the 4 CPUs. With
+`NO_HZ_IDLE` an idle CPU should be nearly silent. This may be how TCG emulates
+the local APIC timer. KVM on a real host and the Mac will tell; if the Mac
+shows the same, it is the first thing to fix.
+
+### 2.9 Verification record
+
+| Check (QEMU, `./build.sh test`) | Result |
+|---|---|
+| first-boot setup offered; root password set; user created | ok |
+| root login with the new password; PID 1 is our init | ok |
+| svd runs both gettys; user alice has uid 1000 | ok |
+| `/` read-write + noatime; `/etc/rc` succeeded | ok |
+| `/etc/shadow` 600 root:root; binaries root-owned | ok |
+| orphan re-parented to PID 1 and reaped; no zombies | ok |
+| `sv restart`; crashing service backs off; output in the kernel log | ok |
+| `bootreport` | ok |
+| poweroff: services stopped, `/` remounted read-only, machine off | ok |
+| boot 2: no first-boot prompt, no journal recovery, password and home persisted | ok |
+| idle metrics collected and recorded; reboot returns to the firmware | ok |
+| BusyBox and the whole image reproducible | ok (after fixing `debugfs` stamping the write time) |
+| Mac: login prompt, first-boot setup, metrics | **to do: needs you** |
+
+| Metric | QEMU TCG | Mac |
+|---|---|---|
+| boot_to_login_s | 2.06 (emulated, not representative) | — |
+| idle_mem_used_mib | 64.7 | — |
+| irq_per_s / timer_irq_per_s | 1078 / 1035 (see open question) | — |
+| user_procs | 8 | — |

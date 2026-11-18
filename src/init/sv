@@ -1,0 +1,37 @@
+#!/bin/sh
+# sv — control mbaos services (see svd.c for the model).
+#   sv status [NAME...]   state, pid, uptime, restarts, last exit status
+#   sv restart NAME...    stop the running process; svd starts it again at once
+#   sv stop NAME...       create /etc/sv/NAME/down and stop it (persists across boots)
+#   sv start NAME...      remove /etc/sv/NAME/down and start it
+set -u
+SVDIR=/etc/sv RUNDIR=/run/sv
+
+svd_pid() { cat "$RUNDIR/.svd.pid" 2>/dev/null; }
+uptime_s() { cut -d' ' -f1 /proc/uptime; }
+
+status() {
+	[ $# -eq 0 ] && set -- $(ls "$RUNDIR" 2>/dev/null)
+	now=$(uptime_s)
+	printf '%-16s %-5s %7s %10s %8s %5s\n' SERVICE STATE PID UP RESTARTS LAST
+	for n in "$@"; do
+		[ -f "$RUNDIR/$n" ] || { echo "$n: no such service" >&2; continue; }
+		read -r st pid since restarts last < "$RUNDIR/$n"
+		up=$(awk -v a="$now" -v b="$since" 'BEGIN{printf "%.0fs", a-b}')
+		[ "$st" = run ] || { pid=-; up=-; }
+		printf '%-16s %-5s %7s %10s %8s %5s\n' "$n" "$st" "$pid" "$up" "$restarts" "$last"
+	done
+}
+
+cmd=${1:-status}; [ $# -gt 0 ] && shift
+case $cmd in
+status)  status "$@" ;;
+restart)
+	for n in "$@"; do
+		read -r st pid _ < "$RUNDIR/$n" || exit 1
+		[ "$st" = run ] && kill -TERM -- "-$pid"
+	done ;;
+stop)    for n in "$@"; do touch "$SVDIR/$n/down"; done; kill -HUP "$(svd_pid)" ;;
+start)   for n in "$@"; do rm -f "$SVDIR/$n/down"; done; kill -HUP "$(svd_pid)" ;;
+*)       sed -n '2,6p' "$0" >&2; exit 2 ;;
+esac

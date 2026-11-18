@@ -1,0 +1,5 @@
+# /etc/profile — login shells
+export PATH=/usr/local/bin:/usr/bin:/usr/sbin
+export LANG=C.UTF-8 PAGER=less EDITOR=vi
+export PS1='\u@\h:\w\$ '
+umask 022

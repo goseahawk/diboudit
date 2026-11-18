@@ -97,6 +97,19 @@ CONFIG_FILE_LOCKING=y
 CONFIG_INOTIFY_USER=y
 CONFIG_POSIX_TIMERS=y
 
+## ---- Base system --------------------------------------------------------[P2]
+# Networking core + Unix-domain sockets: local IPC (and SECCOMP_FILTER needs
+# NET). No IPv4/IPv6 yet: that is Phase 4.
+CONFIG_NET=y
+CONFIG_UNIX=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_UNIX98_PTYS=y
+CONFIG_SYSCTL=y
+# /proc/PID/smaps: per-process memory accounting for the idle-RAM budget
+CONFIG_PROC_PAGE_MONITOR=y
+# Yama: a process may only ptrace its own descendants (kernel.yama.ptrace_scope)
+CONFIG_SECURITY_YAMA=y
+
 ## ---- Filesystems ---------------------------------------------------------[P1]
 CONFIG_PROC_FS=y
 CONFIG_SYSFS=y
@@ -177,7 +190,6 @@ CONFIG_LIST_HARDENED=y
 CONFIG_BUG_ON_DATA_CORRUPTION=y
 CONFIG_LEGACY_VSYSCALL_NONE=y
 CONFIG_SECCOMP=y
-# SECCOMP_FILTER needs CONFIG_NET: added with networking in Phase 2
 # CONFIG_DEVMEM is not set
 # CONFIG_KEXEC is not set
 # CONFIG_HIBERNATION is not set

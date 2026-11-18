@@ -13,6 +13,7 @@
 #   --settle SECS      after a match, keep running SECS before the screendump (default 3)
 #   --gui              show a window (default: headless, serial on the terminal)
 #   --keep-vars        keep UEFI variables between runs (default: fresh each run)
+#   --raw              serial console on stdin/stdout, nothing else (for test drivers)
 #
 # Machine model: q35 (ICH9 AHCI ~ Apple's AHCI PCIe SSD), Broadwell CPU without
 # TSX (as Broadwell-U ships, microcode-disabled), 1 socket / 2 cores / 2 threads,
@@ -20,14 +21,14 @@
 . "$(dirname "$0")/lib.sh"
 
 DISK= KERNEL= APPEND="console=ttyS0,115200 console=tty0" EXPECT= TIMEOUT=120
-LOG=$BUILD/qemu/serial.log SHOT= SETTLE=3 GUI=0 KEEPVARS=0 MEM=${QEMU_MEM:-4096}
+LOG=$BUILD/qemu/serial.log SHOT= SETTLE=3 GUI=0 KEEPVARS=0 RAW=0 MEM=${QEMU_MEM:-4096}
 while [[ $# -gt 0 ]]; do
 	case $1 in
 	--disk) DISK=$2; shift 2 ;;       --kernel) KERNEL=$2; shift 2 ;;
 	--append) APPEND=$2; shift 2 ;;   --expect) EXPECT=$2; shift 2 ;;
 	--timeout) TIMEOUT=$2; shift 2 ;; --log) LOG=$2; shift 2 ;;
 	--screendump) SHOT=$2; shift 2 ;; --gui) GUI=1; shift ;;
-	--keep-vars) KEEPVARS=1; shift ;; --settle) SETTLE=$2; shift 2 ;;
+	--keep-vars) KEEPVARS=1; shift ;; --raw) RAW=1; shift ;; --settle) SETTLE=$2; shift 2 ;;
 	*) die "unknown option $1 (see header of $0)" ;;
 	esac
 done
@@ -80,6 +81,7 @@ finish() {
 	if [[ -n $SHOT && ! -s $SHOT ]]; then warn "NO screenshot captured ($SHOT does not exist)"; fi
 }
 
+if [[ $RAW == 1 ]]; then exec qemu-system-x86_64 "${args[@]}" -serial stdio; fi
 if [[ -z $EXPECT && -z $SHOT ]]; then
 	# Interactive: serial + QEMU monitor multiplexed on this terminal (Ctrl-A X quits).
 	exec qemu-system-x86_64 "${args[@]}" -serial mon:stdio

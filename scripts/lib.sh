@@ -50,3 +50,27 @@ stamp()      { mkdir -p "$STAMPS"; : > "$STAMPS/$1"; }
 
 # Clamp mtimes of a tree to SOURCE_DATE_EPOCH (for anything packed into an image).
 clamp_mtimes() { find "$1" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +; }
+
+# kconfig_verify FRAGMENT DOTCONFIG: every option in the fragment must appear
+# exactly in the resolved .config. Kconfig silently drops options whose name
+# changed or whose dependencies are unmet; this turns that into a build error.
+kconfig_verify() {
+	local frag=$1 cfg=$2 line want sym have missing=0
+	while IFS= read -r line; do
+		case $line in
+		CONFIG_*=*)                 want=$line ;;
+		"# CONFIG_"*" is not set")  want=$line ;;
+		*) continue ;;
+		esac
+		sym=${want#\# }; sym=${sym%%[= ]*}
+		have=$(grep -E "^(# )?${sym}[= ]" "$cfg" || true)
+		if [[ $want == "#"* ]]; then
+			[[ -z $have || $have == "$want" ]] && continue
+		else
+			[[ $have == "$want" ]] && continue
+		fi
+		printf '  wanted: %s\n  got:    %s\n' "$want" "${have:-(absent: unknown symbol or unmet dependency)}" >&2
+		missing=1
+	done < "$frag"
+	return $missing
+}

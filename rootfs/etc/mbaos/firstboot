@@ -1,0 +1,2 @@
+This file's presence means first-boot setup has not run yet.
+/usr/libexec/mbaos/firstboot removes it once a root password is set.

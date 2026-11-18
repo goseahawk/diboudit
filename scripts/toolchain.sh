@@ -98,17 +98,21 @@ stamp_done linux-headers || {
 }
 
 # ---- 4. musl -------------------------------------------------------------------
-stamp_done musl || {
+# -fPIC: libc.a must be position-independent so it can be linked into
+# static-pie binaries. gcc pass 1 does not default to PIE, so without this
+# flag libc.a gets R_X86_64_32 relocations and every -static-pie link fails.
+# The stamp is named musl-pic so builds made before this fix redo this step.
+stamp_done musl-pic || {
 	s=$(unpack musl); o=$(fresh_obj musl)
 	log "musl: configure + build"
 	( cd "$o" && CC="$TARGET-gcc" AR="$TARGET-ar" RANLIB="$TARGET-ranlib" \
-		CFLAGS="-O2 -pipe -march=$TARGET_ARCH -ffile-prefix-map=$s=/usr/src/musl" \
+		CFLAGS="-O2 -pipe -fPIC -march=$TARGET_ARCH -ffile-prefix-map=$s=/usr/src/musl" \
 		"$s/configure" --prefix=/usr --target="$TARGET" --syslibdir=/lib \
 		>configure.log 2>&1 \
 	  && make -j"$JOBS" >build.log 2>&1 \
 	  && make DESTDIR="$SYSROOT" install >install.log 2>&1 ) \
 	  || die "musl failed — see $o/*.log"
-	stamp musl
+	stamp musl-pic
 }
 
 # ---- 5. gcc pass 2 -------------------------------------------------------------

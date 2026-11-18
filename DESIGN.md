@@ -172,7 +172,7 @@ host and has no path to the Mac's internal SSD.
 | `lock`/`fetch` logic (signature check, sha256 pin, tamper and bad-signature refusal) | verified offline with a throwaway key |
 | Key import (`./build.sh keys`), incl. kernel.org WKD through an HTTPS proxy | verified; fingerprints shown matched kernel.org and the musl site |
 | Sources pinned | locked on the owner's Arch machine (GPG-verified, signers in `keys/fingerprints.log`); every sha256 independently re-confirmed by downloading from a second network |
-| Cross toolchain build and smoke test (Arch host, KVM) | all checks pass after four fixes found by the first real run, listed below |
+| Cross toolchain build and smoke test | all 14 checks pass: on the owner's Arch host, and in a from-scratch build of this repo in a clean Ubuntu 24.04 container (19 min on 4 cores; smoke test repeated 6×, no flakes) |
 | Harness self-test on a KVM host | passes (OVMF → `BOOTX64.EFI` in 2.3 s; EFI-stub kernel to the expected panic) |
 
 Bugs the first real run found, all fixed:

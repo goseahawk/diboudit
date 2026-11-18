@@ -29,11 +29,16 @@ fi
 grep -q "root=PARTUUID=$ROOT_PART_GUID " "$FRAG" \
 	|| die "kernel.fragment CONFIG_CMDLINE root=PARTUUID does not match ROOT_PART_GUID=$ROOT_PART_GUID"
 
+# RUSTC/BINDGEN=false: Kconfig probes the host's Rust toolchain even though our
+# kernel has no Rust, and the probed versions end up in .config, which
+# CONFIG_IKCONFIG embeds in the image. Different rustc versions on two build
+# machines therefore produced different kernels. Now every machine sees none.
 kmake() {
 	make -C "$SRC" O="$OBJ" ARCH=x86_64 CROSS_COMPILE="$TOOLS/bin/$TARGET-" \
 		KCFLAGS="-march=$TARGET_ARCH -mtune=$TARGET_ARCH" \
 		KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%d %H:%M:%S UTC')" \
 		KBUILD_BUILD_USER=mbaos KBUILD_BUILD_HOST=mbaos KBUILD_BUILD_VERSION=1 \
+		RUSTC=false BINDGEN=false \
 		"$@"
 }
 

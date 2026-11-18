@@ -111,7 +111,8 @@ ok "QEMU boot test passed (screenshot: build/phase1/screen.png)"
 
 # ---- 9. USB stick (optional) ---------------------------------------------------------
 step "9/10: USB stick for the Mac (optional)"
-usb=$(lsblk -dnpo NAME,TRAN,SIZE,MODEL 2>/dev/null | awk '$2=="usb"')
+# USB disks with media in them (an empty card reader shows up as size 0)
+usb=$(lsblk -dnpbo NAME,TRAN,SIZE,MODEL 2>/dev/null | awk '$2=="usb" && $3>0 {printf "%-10s %6.1f GB  ", $1, $3/1e9; for (i=4;i<=NF;i++) printf "%s ", $i; print ""}')
 if [[ -z $usb ]]; then
 	echo "No USB stick plugged in. Skipping. Later: plug one in and run ./doit.sh again,"
 	echo "or: ./build.sh usb /dev/sdX"

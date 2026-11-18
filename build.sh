@@ -4,6 +4,7 @@
 #   ./build.sh                 = ./build.sh all
 #   ./build.sh all             check-host, fetch, toolchain, smoke (+ image once a kernel exists)
 #   ./build.sh check-host      verify the build host has every required tool
+#   ./build.sh keys            build keys/trusted.gpg (upstream signing keys; asks you to cross-check)
 #   ./build.sh lock [NAME..]   pin sources: verify GPG signature, record sha256
 #   ./build.sh fetch [NAME..]  download + sha256-verify pinned sources
 #   ./build.sh toolchain       build the musl cross toolchain into build/tools
@@ -31,6 +32,7 @@ need_kernel() {
 cmd=${1:-all}; shift || true
 case $cmd in
 check-host)  exec scripts/check-host.sh ;;
+keys)        exec scripts/import-keys.sh "$@" ;;
 lock)        exec scripts/lock.sh "$@" ;;
 fetch)       exec scripts/fetch.sh "$@" ;;
 toolchain)   exec scripts/toolchain.sh ;;
@@ -53,5 +55,5 @@ all)
 	tests/toolchain-smoke.sh
 	if [[ -n ${KERNEL:-} ]]; then scripts/mkimage.sh --kernel "$KERNEL" --out "$IMG"
 	else log "Phase 0 complete. No kernel yet, so no disk image (Phase 1)."; fi ;;
-*) sed -n '2,20p' "$0"; exit 1 ;;
+*) sed -n '2,21p' "$0"; exit 1 ;;
 esac

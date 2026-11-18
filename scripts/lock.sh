@@ -8,7 +8,7 @@
 . "$(dirname "$0")/lib.sh"
 
 KEYRING=$TOP/keys/trusted.gpg
-[[ -s $KEYRING ]] || die "no keyring at keys/trusted.gpg — see keys/README.md (import and cross-check the upstream signing keys first)"
+[[ -s $KEYRING ]] || die "no keyring at keys/trusted.gpg — run ./build.sh keys first (see keys/README.md)"
 command -v gpgv >/dev/null || die "gpgv not installed"
 
 lock_one() {

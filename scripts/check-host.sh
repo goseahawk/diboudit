@@ -20,6 +20,7 @@ need rsync      "rsync (kernel headers_install)"
 need xz         "xz-utils / xz"
 need curl       "curl"
 need gpgv       "gpgv / gnupg"
+need gpg        "gnupg (./build.sh keys)"
 need sha256sum  "coreutils"
 need patch      "patch"
 need sgdisk     "gdisk"
@@ -34,7 +35,7 @@ ovmf=$(ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/x64/OVMF_CODE*.fd /usr/s
 
 if (( ${#missing[@]} )); then
 	printf 'missing: %s\n' "${missing[@]}" >&2
-	echo "Debian/Ubuntu: sudo apt install build-essential bison flex gawk texinfo m4 perl python3 bc rsync xz-utils curl gpgv patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 ovmf file" >&2
+	echo "Debian/Ubuntu: sudo apt install build-essential bison flex gawk texinfo m4 perl python3 bc rsync xz-utils curl gpgv gnupg patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 ovmf file" >&2
 	echo "Arch:          sudo pacman -S base-devel bison flex gawk texinfo perl python bc rsync xz curl gnupg patch gptfdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file" >&2
 	exit 1
 fi

@@ -74,11 +74,13 @@ CONFIG_RTC_DRV_CMOS=y
 # carries its own. Root is found by its fixed GPT partition GUID
 # (ROOT_PART_GUID in config/target.conf); kernel.sh checks the two agree.
 # rootwait: USB sticks enumerate after the kernel is ready to mount.
+# usb-storage.delay_use=0: skip usb-storage's default 1 s "settle" wait before
+# scanning a new USB disk. Measured on the Mac: it cost ~1.2 s of a 4.4 s boot.
 # console order: last one is /dev/console -> the screen (the Mac has no UART).
 # Arguments a boot loader passes (QEMU -append) are appended, not ignored;
 # CMDLINE_OVERRIDE (ignore them) comes with the lockdown work in Phase 6.
 CONFIG_CMDLINE_BOOL=y
-CONFIG_CMDLINE="root=PARTUUID=6d62616f-7300-4000-8000-000000000003 rootfstype=ext4 rootwait ro console=ttyS0,115200 console=tty0 printk.devkmsg=on"
+CONFIG_CMDLINE="root=PARTUUID=6d62616f-7300-4000-8000-000000000003 rootfstype=ext4 rootwait ro console=ttyS0,115200 console=tty0 printk.devkmsg=on usb-storage.delay_use=0"
 # CONFIG_CMDLINE_OVERRIDE is not set
 
 ## ---- Executables, core kernel interfaces ---------------------------------[P1]

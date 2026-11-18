@@ -346,13 +346,28 @@ the TSC is not reset at power-on, so the probe prints n/a.
 | QEMU: root mounted read-only by PARTUUID; init = boot probe | ok |
 | QEMU: lockdown `[integrity]`, 4 CPUs, DMI, AHCI disk, DRM console | ok |
 | QEMU: no kernel warnings/oopses; no unexpected *Vulnerable* | ok |
-| Mac: boots from USB, report on screen, timings | **to do: needs you** |
+| Mac (MacBookAir7,2, firmware 489.0.0.0.0): boots from USB stick via Option → "EFI Boot" | **ok**, first try |
+| Mac: DMI, i5-5250U 4 threads, 7.7 GiB, internal APPLE SSD SM0256 + SD reader + USB stick, 1440x900, lockdown integrity | **ok** |
+| Mac: mitigations with Apple's firmware microcode | **ok**: MDS clear CPU buffers (SMT vulnerable, see 1.5), SSB via prctl, SRBDS microcode, Spectre v2 retpolines + IBPB + STIBP, Meltdown PTI |
 
 ### 1.8 Measurements
 
 | Metric | QEMU TCG (this container) | Mac (USB stick) |
 |---|---|---|
 | bzImage size | 5.4 MiB (LZ4) | same image |
-| kernel start → init | 1.63 s (emulated CPU; not representative) | — |
-| CPU reset → init | n/a (hypervisor) | — |
-| memory used at init | 69 MiB of 3.9 GiB | — |
+| kernel start → init | 1.63 s (emulated CPU; not representative) | **4.39 s** (first boot, before fixes) |
+| CPU reset → init | n/a (hypervisor) | 15.3 s, includes sitting in the Option boot picker, so not a firmware measurement |
+| memory used at init | 69 MiB of 3.9 GiB | 92 MiB of 7.7 GiB (to investigate in Phase 2) |
+
+First Mac boot, where the 4.39 s went (from the photo of the screen):
+
+* `usb-storage` waits 1 s ("delay_use") before scanning each new USB disk:
+  the stick was enumerated at 3.14 s but attached at 4.37 s. Fixed with
+  `usb-storage.delay_use=0` on the command line. It only affects booting from
+  USB; the internal SSD is AHCI.
+* 0 → 3.1 s scrolled off the screen. The boot probe now reads the kernel log
+  and prints the ten largest gaps between messages, so the next Mac boot
+  shows where that time goes.
+* `vmscape: Vulnerable` appears on the Mac (not in QEMU). VMSCAPE is a
+  guest-to-host attack on KVM hosts; this kernel has no KVM, so it does not
+  apply.

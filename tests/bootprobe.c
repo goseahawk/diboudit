@@ -14,6 +14,7 @@
  */
 #define _GNU_SOURCE
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -77,6 +78,62 @@ static long field(const char *path, const char *key, char *str, size_t len)
 	return v;
 }
 
+/* ---- boot log analysis: where did the time go? ------------------------- */
+#define MAXREC 4096
+static struct { long long us; char msg[96]; } rec[MAXREC];
+static int nrec;
+
+/* Read every record currently in the kernel log (before we add our own). */
+static void read_kernel_log(void)
+{
+	char buf[1024];
+	int fd = open("/dev/kmsg", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) return;
+	while (nrec < MAXREC) {
+		ssize_t n = read(fd, buf, sizeof buf - 1);
+		if (n < 0) {
+			if (errno == EPIPE) continue; /* records overwritten; skip ahead */
+			break;                        /* EAGAIN: end of log */
+		}
+		buf[n] = 0;
+		/* "prio,seq,usec,flags;message\n[ continuation...]" */
+		long long us;
+		char *semi = strchr(buf, ';');
+		if (!semi || sscanf(buf, "%*d,%*d,%lld", &us) != 1) continue;
+		char *msg = semi + 1;
+		msg[strcspn(msg, "\n")] = 0;
+		rec[nrec].us = us;
+		snprintf(rec[nrec].msg, sizeof rec[nrec].msg, "%s", msg);
+		nrec++;
+	}
+	close(fd);
+}
+
+static double first_match(const char *needle)
+{
+	for (int i = 0; i < nrec; i++)
+		if (strstr(rec[i].msg, needle)) return rec[i].us / 1e6;
+	return -1;
+}
+
+/* The N largest gaps between consecutive kernel messages: the line printed
+ * AFTER the gap is usually the thing that was being waited for. */
+static void report_gaps(int top)
+{
+	static char used[MAXREC];
+	for (int k = 0; k < top; k++) {
+		int best = -1;
+		long long bestgap = 0;
+		for (int i = 1; i < nrec; i++) {
+			long long g = rec[i].us - rec[i - 1].us;
+			if (!used[i] && g > bestgap) { bestgap = g; best = i; }
+		}
+		if (best < 0 || bestgap < 20000) break; /* ignore gaps under 20 ms */
+		used[best] = 1;
+		say("gap      %6.3f s before [%8.3f] %s", bestgap / 1e6, rec[best].us / 1e6, rec[best].msg);
+	}
+}
+
 static double now(clockid_t c)
 {
 	struct timespec t;
@@ -94,6 +151,7 @@ int main(void)
 	mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
 	mount("sysfs", "/sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
 	mount("securityfs", "/sys/kernel/security", "securityfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+	read_kernel_log();
 	kmsg = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
 
 	/* TSC frequency, measured against the kernel's monotonic raw clock */
@@ -152,6 +210,10 @@ int main(void)
 	}
 	if (d) closedir(d);
 
+	say("kernel log: %d messages; largest gaps (20 ms or more):", nrec);
+	report_gaps(10);
+	say("TIME root mounted at %.3f s, USB disk detected at %.3f s (-1 = none)",
+	    first_match("VFS: Mounted root"), first_match("USB Mass Storage device detected"));
 	say("TIME kernel->init %.3f s", kernel);
 	char flags[4096];
 	field("/proc/cpuinfo", "flags", flags, sizeof flags);

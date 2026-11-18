@@ -45,10 +45,22 @@ kmake -s KCONFIG_ALLCONFIG="$FRAG" allnoconfig >"$OBJ/config.log" 2>&1 \
 kconfig_verify "$FRAG" "$OBJ/.config" || die "kernel config does not match kernel.fragment (see above)"
 log "config verified: every fragment option present"
 
-# Commit-friendly resolved config (drop the host-dependent compiler lines).
+# Resolved config without the host-dependent compiler lines. A normal build
+# only compares it with the committed copy (a difference means this machine
+# configures the kernel differently: a reproducibility problem worth knowing
+# about); `./build.sh kernel-config` updates the committed copy.
+mkdir -p "$BUILD/kernel"
 grep -v -E '^CONFIG_(CC_VERSION_TEXT|GCC_VERSION|AS_VERSION|LD_VERSION|PAHOLE_VERSION|RUSTC_VERSION|BINDGEN_VERSION|CC_HAS_|AS_HAS_|LD_CAN_|LD_IS_|TOOLS_SUPPORT_)' \
-	"$OBJ/.config" > "$RESOLVED"
-(( CONFIG_ONLY )) && { log "resolved config: $RESOLVED"; exit 0; }
+	"$OBJ/.config" > "$BUILD/kernel/resolved.config"
+if (( CONFIG_ONLY )); then
+	cp "$BUILD/kernel/resolved.config" "$RESOLVED"
+	log "resolved config updated: $RESOLVED"; exit 0
+fi
+if ! cmp -s "$BUILD/kernel/resolved.config" "$RESOLVED"; then
+	warn "this machine's resolved kernel config differs from config/kernel.resolved.config:"
+	diff "$RESOLVED" "$BUILD/kernel/resolved.config" | grep '^[<>]' | head -20 >&2
+	warn "(if you changed kernel.fragment, run ./build.sh kernel-config and commit the result)"
+fi
 
 log "linux $KV: build bzImage (-j$JOBS)"
 start=$SECONDS

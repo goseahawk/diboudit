@@ -7,7 +7,7 @@
 
 T=$BUILD/smoke; rm -rf "$T"; mkdir -p "$T"; cd "$T" || exit 1
 fail=0
-check() { if eval "$2"; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s\n' "$1"; fail=1; fi; }
+check() { if (set +o pipefail; eval "$2"); then printf '  ok   %s\n' "$1"; else printf '  FAIL %s\n' "$1"; fail=1; fi; }
 
 cat > hello.c <<'EOF'
 #include <stdio.h>
@@ -27,12 +27,15 @@ $CC  $CFLAGS hello.c  -o hello-static -static-pie
 $CXX $CXXFLAGS hello.cc -o hello-cxx $LDFLAGS -pthread
 
 LOADER=$SYSROOT/usr/lib/libc.so     # musl's libc.so is also its dynamic linker
+# target libstdc++/libgcc_s (lib64 on x86_64), never the host's glibc ones
+CXXLIB=$(dirname "$($CXX -print-file-name=libstdc++.so.6)")
 echo "toolchain: $($CC --version | head -1)"
 check "default -march is broadwell"   "$CC -Q --help=target 2>/dev/null | grep -Eq '^\s+-march=\s+broadwell'"
 check "AVX2 enabled by default"       "echo | $CC -dM -E - | grep -q __AVX2__"
 check "static-pie binary runs"        "./hello-static | grep -q 'hello from musl'"
 check "dynamic binary runs (musl ld)" "$LOADER ./hello-dyn | grep -q 'hello from musl'"
-check "C++ + threads runs"            "LD_LIBRARY_PATH=$TOOLS/$TARGET/lib $LOADER ./hello-cxx | grep -q 'c++ threads'"
+check "C++ runtime libs found"       "[[ -f $CXXLIB/libstdc++.so.6 && -f $CXXLIB/libgcc_s.so.1 ]]"
+check "C++ + threads runs"            "LD_LIBRARY_PATH=$CXXLIB $LOADER ./hello-cxx | grep -q 'c++ threads'"
 check "interpreter is ld-musl"        "$READELF -l hello-dyn | grep -q 'ld-musl-x86_64.so.1'"
 check "PIE (ELF type DYN)"            "$READELF -h hello-dyn | grep -q 'DYN'"
 check "full RELRO (BIND_NOW)"         "$READELF -d hello-dyn | grep -Eq 'BIND_NOW|FLAGS.*NOW'"

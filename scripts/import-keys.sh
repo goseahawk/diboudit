@@ -20,13 +20,13 @@ G=$(mktemp -d); trap 'rm -rf "$G"' EXIT
 export GNUPGHOME=$G; chmod 700 "$G"
 
 log "GNU keyring (binutils, gcc, gmp, mpfr, mpc)"
-"$TOP/scripts/fetch.sh" --download-only https://ftp.gnu.org/gnu/gnu-keyring.gpg "$G/gnu-keyring.gpg"
+bash "$TOP/scripts/fetch.sh" --download-only https://ftp.gnu.org/gnu/gnu-keyring.gpg "$G/gnu-keyring.gpg"
 gpg --batch --quiet --import "$G/gnu-keyring.gpg" 2>/dev/null || true
 gnu_count=$(gpg --batch --list-keys --with-colons | grep -c '^pub' || true)
 (( gnu_count > 0 )) || die "GNU keyring imported no keys"
 
 log "musl signing key"
-"$TOP/scripts/fetch.sh" --download-only https://musl.libc.org/musl.pub "$G/musl.pub"
+bash "$TOP/scripts/fetch.sh" --download-only https://musl.libc.org/musl.pub "$G/musl.pub"
 gpg --batch --quiet --import "$G/musl.pub" || die "musl.pub did not import"
 
 log "kernel.org keys via WKD"
@@ -37,9 +37,9 @@ a="ybndrfg8ejkmcpqxot1uwisza345h769"; h=hashlib.sha1(sys.argv[1].lower().encode(
 n=int.from_bytes(h,"big"); print("".join(a[(n>>(155-5*i))&31] for i in range(32)))' "$1"; }
 for addr in torvalds@kernel.org gregkh@kernel.org; do
 	local_part=${addr%@*}; domain=${addr#*@}; h=$(wkd_hash "$local_part")
-	"$TOP/scripts/fetch.sh" --download-only \
+	bash "$TOP/scripts/fetch.sh" --download-only \
 		"https://openpgpkey.$domain/.well-known/openpgpkey/$domain/hu/$h?l=$local_part" "$G/$local_part.key" 2>/dev/null \
-	|| "$TOP/scripts/fetch.sh" --download-only \
+	|| bash "$TOP/scripts/fetch.sh" --download-only \
 		"https://$domain/.well-known/openpgpkey/hu/$h?l=$local_part" "$G/$local_part.key" \
 	|| die "WKD lookup for $addr failed"
 	# keep only the user ID for this address (WKD rule), then import

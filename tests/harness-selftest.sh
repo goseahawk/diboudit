@@ -12,18 +12,18 @@ K=${1:?usage: harness-selftest.sh BZIMAGE}
 T=$BUILD/selftest; mkdir -p "$T"
 
 log "1/3 disk boot: firmware -> ESP -> BOOTX64.EFI"
-"$TOP/scripts/mkimage.sh" --kernel "$K" --out "$T/disk.img"
+bash "$TOP/scripts/mkimage.sh" --kernel "$K" --out "$T/disk.img"
 # The stand-in kernel has no built-in command line, so after the firmware hands
 # over it only draws on the framebuffer; capture it as proof.
-"$TOP/scripts/qemu.sh" --disk "$T/disk.img" --timeout 300 --log "$T/disk-serial.log" \
+bash "$TOP/scripts/qemu.sh" --disk "$T/disk.img" --timeout 300 --log "$T/disk-serial.log" \
 	--expect 'BdsDxe: starting Boot[0-9A-F]+ .*QEMU HARDDISK' --screendump "$T/disk-screen.png" --settle 25
 
 log "2/3 kernel boot via EFI stub, kernel log on serial"
-"$TOP/scripts/qemu.sh" --kernel "$K" --append "console=ttyS0,115200 panic=-1" --timeout 600 \
+bash "$TOP/scripts/qemu.sh" --kernel "$K" --append "earlycon=uart8250,io,0x3f8,115200 console=ttyS0,115200 ignore_loglevel panic=-1" --timeout 600 \
 	--log "$T/kernel-serial.log" --expect 'Kernel panic - not syncing|Run /init as init process'
 grep -m1 'Linux version' "$T/kernel-serial.log" || die "no kernel banner on serial"
 
 log "3/3 reproducibility"
-"$TOP/scripts/mkimage.sh" --kernel "$K" --out "$T/disk2.img"
+bash "$TOP/scripts/mkimage.sh" --kernel "$K" --out "$T/disk2.img"
 cmp -s "$T/disk.img" "$T/disk2.img" || die "image is NOT reproducible"
 log "harness self-test PASSED (logs and screenshot in $T)"

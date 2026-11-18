@@ -31,28 +31,28 @@ need_kernel() {
 
 cmd=${1:-all}; shift || true
 case $cmd in
-check-host)  exec scripts/check-host.sh ;;
-keys)        exec scripts/import-keys.sh "$@" ;;
-lock)        exec scripts/lock.sh "$@" ;;
-fetch)       exec scripts/fetch.sh "$@" ;;
-toolchain)   exec scripts/toolchain.sh ;;
-smoke)       exec tests/toolchain-smoke.sh ;;
-image)       need_kernel; mkdir -p "$BUILD"; exec scripts/mkimage.sh --kernel "$KERNEL" --out "$IMG" "$@" ;;
-qemu)        [[ -f $IMG ]] || die "no image; run ./build.sh image first"; exec scripts/qemu.sh --disk "$IMG" "$@" ;;
+check-host)  exec bash scripts/check-host.sh ;;
+keys)        exec bash scripts/import-keys.sh "$@" ;;
+lock)        exec bash scripts/lock.sh "$@" ;;
+fetch)       exec bash scripts/fetch.sh "$@" ;;
+toolchain)   exec bash scripts/toolchain.sh ;;
+smoke)       exec bash tests/toolchain-smoke.sh ;;
+image)       need_kernel; mkdir -p "$BUILD"; exec bash scripts/mkimage.sh --kernel "$KERNEL" --out "$IMG" "$@" ;;
+qemu)        [[ -f $IMG ]] || die "no image; run ./build.sh image first"; exec bash scripts/qemu.sh --disk "$IMG" "$@" ;;
 repro-check)
 	need_kernel; mkdir -p "$BUILD/repro"
-	scripts/mkimage.sh --kernel "$KERNEL" --out "$BUILD/repro/a.img"
+	bash scripts/mkimage.sh --kernel "$KERNEL" --out "$BUILD/repro/a.img"
 	sleep 2   # different wall-clock time must not change the output
-	scripts/mkimage.sh --kernel "$KERNEL" --out "$BUILD/repro/b.img"
+	bash scripts/mkimage.sh --kernel "$KERNEL" --out "$BUILD/repro/b.img"
 	if cmp -s "$BUILD/repro/a.img" "$BUILD/repro/b.img"; then log "REPRODUCIBLE: images are bit-identical"
 	else die "NOT reproducible: images differ (cmp -l build/repro/{a,b}.img | head)"; fi ;;
-harness-selftest) need_kernel; exec tests/harness-selftest.sh "$KERNEL" ;;
+harness-selftest) need_kernel; exec bash tests/harness-selftest.sh "$KERNEL" ;;
 clean)       rm -rf "$BUILD"; log "removed build/ (sources/ cache kept)" ;;
 all)
-	scripts/check-host.sh
-	scripts/fetch.sh
-	scripts/toolchain.sh
-	tests/toolchain-smoke.sh
+	bash scripts/check-host.sh
+	bash scripts/fetch.sh
+	bash scripts/toolchain.sh
+	bash tests/toolchain-smoke.sh
 	if [[ -n ${KERNEL:-} ]]; then scripts/mkimage.sh --kernel "$KERNEL" --out "$IMG"
 	else log "Phase 0 complete. No kernel yet, so no disk image (Phase 1)."; fi ;;
 *) sed -n '2,21p' "$0"; exit 1 ;;

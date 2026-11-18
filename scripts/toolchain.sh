@@ -16,7 +16,7 @@ export PATH=$TOOLS/bin:$PATH
 # Host build flags: the toolchain itself runs on the build host, not the Mac.
 export CFLAGS="-O2 -pipe" CXXFLAGS="-O2 -pipe"
 
-"$TOP/scripts/fetch.sh" binutils gcc gmp mpfr mpc musl linux
+bash "$TOP/scripts/fetch.sh" binutils gcc gmp mpfr mpc musl linux
 
 unpack() { # name -> prints source dir; extracts fresh if absent
 	local name=$1 v u s g dir
@@ -76,7 +76,7 @@ stamp_done gcc1 || {
 	s=$(unpack gcc); link_gcc_prereqs "$s"; o=$(fresh_obj gcc1)
 	log "gcc pass 1: configure + build (C only, no libc)"
 	( cd "$o" && "$s/configure" "${COMMON_GCC_FLAGS[@]}" \
-		--enable-languages=c --with-newlib --without-headers \
+		--enable-languages=c --with-newlib --without-headers --enable-default-pie \
 		--disable-shared --disable-threads --disable-decimal-float \
 		--disable-libatomic --disable-libgomp --disable-libquadmath \
 		--disable-libssp --disable-libvtv --disable-libstdcxx \
@@ -102,7 +102,7 @@ stamp_done musl || {
 	s=$(unpack musl); o=$(fresh_obj musl)
 	log "musl: configure + build"
 	( cd "$o" && CC="$TARGET-gcc" AR="$TARGET-ar" RANLIB="$TARGET-ranlib" \
-		CFLAGS="-O2 -pipe -march=$TARGET_ARCH -ffile-prefix-map=$s=/usr/src/musl" \
+		CFLAGS="-O2 -pipe -march=$TARGET_ARCH -fPIE -ffile-prefix-map=$s=/usr/src/musl" \
 		"$s/configure" --prefix=/usr --target="$TARGET" --syslibdir=/lib \
 		>configure.log 2>&1 \
 	  && make -j"$JOBS" >build.log 2>&1 \

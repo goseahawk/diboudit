@@ -171,7 +171,20 @@ host and has no path to the Mac's internal SSD.
 | EFI-stub kernel boot with a kernel log on serial | verified, up to the expected no-root panic |
 | `lock`/`fetch` logic (signature check, sha256 pin, tamper and bad-signature refusal) | verified offline with a throwaway key |
 | Key import (`./build.sh keys`), incl. kernel.org WKD through an HTTPS proxy | verified; fingerprints shown matched kernel.org and the musl site |
-| Cross toolchain build and smoke test | **NOT YET RUN.** It needs you to confirm the signing keys first. Run `./doit.sh`. |
+| Sources pinned | locked on the owner's Arch machine (GPG-verified, signers in `keys/fingerprints.log`); every sha256 independently re-confirmed by downloading from a second network |
+| Cross toolchain build and smoke test (Arch host, KVM) | all checks pass after four fixes found by the first real run, listed below |
+| Harness self-test on a KVM host | passes (OVMF → `BOOTX64.EFI` in 2.3 s; EFI-stub kernel to the expected panic) |
+
+Bugs the first real run found, all fixed:
+
+* `libc.a` was not PIE-compatible, so `-static-pie` failed to link. Pass-1 GCC
+  now defaults to PIE and musl is built with `-fPIE`.
+* The C++ test loaded the host's glibc `libstdc++`. Cross target libraries
+  live in `lib64`; the test now asks the compiler (`-print-file-name`).
+* `cmd | grep -q` under `pipefail` failed at random (SIGPIPE). Checks now run
+  with `pipefail` off.
+* Distro kernels register the serial console late and drop early lines. The
+  self-test passes `earlycon`.
 
 The harness was checked with a stock Ubuntu 6.8 kernel used as a **test
 fixture only**; it isn't part of mbaos. Phase 1 replaces it with our own

@@ -17,8 +17,8 @@ lock_one() {
 	f=$SOURCES/${u##*/}
 	sig=$SOURCES/${g##*/}
 	mkdir -p "$SOURCES"
-	[[ -f $f ]]   || { log "download $name $v"; "$TOP/scripts/fetch.sh" --download-only "$u" "$f"; }
-	[[ -f $sig ]] || "$TOP/scripts/fetch.sh" --download-only "$g" "$sig"
+	[[ -f $f ]]   || { log "download $name $v"; bash "$TOP/scripts/fetch.sh" --download-only "$u" "$f"; }
+	[[ -f $sig ]] || bash "$TOP/scripts/fetch.sh" --download-only "$g" "$sig"
 
 	data=$f
 	if [[ $sig == *.tar.sign ]]; then

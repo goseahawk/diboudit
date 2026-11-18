@@ -25,4 +25,4 @@ tests/                 toolchain smoke test, harness self-test, phase2-boot.py (
 build/  sources/       outputs and download cache (not committed)
 ```
 
-Status: **Phase 2** (base system: our init, BusyBox, login). Phases 0-1 complete. See DESIGN.md §2.9.
+Status: Phases 0-2 complete (toolchain, kernel, base system with our init), verified in QEMU and on the Mac. Next: Phase 3, hardware bring-up. See DESIGN.md §2.9.

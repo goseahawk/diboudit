@@ -567,11 +567,13 @@ this would have meant a warm laptop and a dead battery.
 | boot 2: no first-boot prompt, no journal recovery, password and home persisted | ok |
 | idle metrics collected and recorded; reboot returns to the firmware | ok |
 | BusyBox and the whole image reproducible | ok (after fixing `debugfs` stamping the write time) |
-| Mac: login prompt, first-boot setup, metrics | **to do: needs you** |
+| Mac (USB stick): first-boot setup with the internal keyboard, root + user created, login, metrics, bootreport | **ok** |
 
 | Metric | QEMU TCG | Mac |
 |---|---|---|
-| boot_to_login_s | 1.81 (TCG, emulated, not representative); 1.03 under KVM | — |
-| idle_mem_used_mib | 66.6 | — |
-| irq_per_s / timer_irq_per_s | 51 / 39 (was 1089 / 1044 before the svd fix) | — |
-| user_procs | 8 | — |
+| boot_to_login_s | 1.81 (TCG, emulated, not representative); 1.03 under KVM | **3.56** (from USB; ~2 s of it is waiting for the stick, see §1.8) |
+| idle_mem_used_mib | 66.6 | **94.7** (8 GiB RAM: more page tables/struct pages; real framebuffer) |
+| irq_per_s / timer_irq_per_s | 51 / 39 (was 1089 / 1044 before the svd fix) | **30 / 23** |
+| user_procs | 8 | 8 |
+| init → rc done → getty | — | 35 ms + 2 ms |
+| CPU reset → PID 1 | n/a | 14.6 s, includes the Option boot picker (not a firmware measurement) |

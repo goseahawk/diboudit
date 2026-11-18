@@ -541,11 +541,15 @@ On the Mac: `cat /run/metrics`, and `bootreport` for the boot timeline.
 
 Input latency needs a display stack; it starts in Phase 5.
 
-**Open question: timer interrupts.** In QEMU (TCG), the idle system takes
-~1000 local-timer interrupts per second, ~250/s on each of the 4 CPUs. With
-`NO_HZ_IDLE` an idle CPU should be nearly silent. This may be how TCG emulates
-the local APIC timer. KVM on a real host and the Mac will tell; if the Mac
-shows the same, it is the first thing to fix.
+**Found by this metric: svd spun at 100 % CPU.** The first runs showed ~1000
+local-timer interrupts per second at idle, in QEMU under both TCG and KVM. The
+config was correctly tickless (`/proc/timer_list` showed ticks stopped on quiet
+CPUs), but two CPUs took ~500 interrupts/s each: one busy task bouncing between
+them. It was `svd`. `getty` replaces its stdout with the terminal, closing its
+end of svd's log pipe; `poll()` then reported the pipe readable forever,
+`read()` returned 0, and svd looped. svd now stops watching a pipe at
+end-of-file. Idle interrupts: **1089/s → 51/s** (timer: 1044 → 39). On the Mac
+this would have meant a warm laptop and a dead battery.
 
 ### 2.9 Verification record
 
@@ -567,7 +571,7 @@ shows the same, it is the first thing to fix.
 
 | Metric | QEMU TCG | Mac |
 |---|---|---|
-| boot_to_login_s | 2.06 (emulated, not representative) | — |
-| idle_mem_used_mib | 64.7 | — |
-| irq_per_s / timer_irq_per_s | 1078 / 1035 (see open question) | — |
+| boot_to_login_s | 1.81 (TCG, emulated, not representative); 1.03 under KVM | — |
+| idle_mem_used_mib | 66.6 | — |
+| irq_per_s / timer_irq_per_s | 51 / 39 (was 1089 / 1044 before the svd fix) | — |
 | user_procs | 8 | — |

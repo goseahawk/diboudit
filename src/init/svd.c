@@ -175,9 +175,11 @@ static void scan(void)
 
 static void drain_log(struct svc *s, int final)
 {
+	int eof = 0;
 	for (;;) {
 		ssize_t n = read(s->logfd, s->buf + s->blen, sizeof s->buf - 1 - s->blen);
-		if (n <= 0) break;
+		if (n == 0) { eof = 1; break; }   /* every writer closed the pipe */
+		if (n < 0) break;                 /* EAGAIN: nothing more for now */
 		s->blen += n;
 		char *nl;
 		while ((nl = memchr(s->buf, '\n', s->blen)) || s->blen == sizeof s->buf - 1) {
@@ -189,7 +191,12 @@ static void drain_log(struct svc *s, int final)
 			s->blen -= used;
 		}
 	}
-	if (final && s->blen) { s->buf[s->blen] = 0; klog(s->name, "%s", s->buf); s->blen = 0; }
+	if ((final || eof) && s->blen) { s->buf[s->blen] = 0; klog(s->name, "%s", s->buf); s->blen = 0; }
+	/* At end-of-file stop watching the pipe. A service may close its output
+	 * while still running (getty replaces stdout with the terminal); poll()
+	 * then reports the pipe readable forever, and svd used to spin at 100 %
+	 * CPU for as long as a getty ran. Found by the idle-wakeup metric. */
+	if (eof && s->logfd >= 0) { close(s->logfd); s->logfd = -1; }
 }
 
 static void reaped(pid_t pid, int st)

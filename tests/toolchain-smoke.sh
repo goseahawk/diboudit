@@ -7,7 +7,11 @@
 
 T=$BUILD/smoke; rm -rf "$T"; mkdir -p "$T"; cd "$T" || exit 1
 fail=0
-check() { if eval "$2"; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s\n' "$1"; fail=1; fi; }
+# grep -c (not -q) so grep reads all of its input: -q exits at the first
+# match, which can kill a long-writing command with SIGPIPE and, under
+# pipefail, fail a check at random. The output is captured, not sent to
+# /dev/null, because GNU grep also stops early when stdout is /dev/null.
+check() { local out; if out=$(eval "$2"); then printf '  ok   %s\n' "$1"; else printf '  FAIL %s\n' "$1"; fail=1; fi; }
 
 cat > hello.c <<'EOF'
 #include <stdio.h>
@@ -28,22 +32,22 @@ $CXX $CXXFLAGS hello.cc -o hello-cxx $LDFLAGS -pthread
 
 LOADER=$SYSROOT/usr/lib/libc.so     # musl's libc.so is also its dynamic linker
 echo "toolchain: $($CC --version | head -1)"
-check "default -march is broadwell"   "$CC -Q --help=target 2>/dev/null | grep -Eq '^\s+-march=\s+broadwell'"
-check "AVX2 enabled by default"       "echo | $CC -dM -E - | grep -q __AVX2__"
-check "static-pie binary runs"        "./hello-static | grep -q 'hello from musl'"
-check "dynamic binary runs (musl ld)" "$LOADER ./hello-dyn | grep -q 'hello from musl'"
+check "default -march is broadwell"   "$CC -Q --help=target 2>/dev/null | grep -Ec '^\s+-march=\s+broadwell'"
+check "AVX2 enabled by default"       "echo | $CC -dM -E - | grep -c __AVX2__"
+check "static-pie binary runs"        "./hello-static | grep -c 'hello from musl'"
+check "dynamic binary runs (musl ld)" "$LOADER ./hello-dyn | grep -c 'hello from musl'"
 # gcc puts the target's libstdc++/libgcc_s in lib/ or lib64/ depending on the
 # target; find it rather than guess. Without the right path musl's loader
 # falls back to the host's /lib and picks up glibc's libstdc++.
 CXXLIBDIR=$(dirname "$(find "$TOOLS/$TARGET" -name 'libstdc++.so.6' -print -quit 2>/dev/null)" 2>/dev/null || true)
 check "C++ runtime libs found"        "[[ -n \$CXXLIBDIR && -e \$CXXLIBDIR/libstdc++.so.6 ]]"
-check "C++ + threads runs"            "$LOADER --library-path \"\$CXXLIBDIR\" ./hello-cxx | grep -q 'c++ threads'"
-check "interpreter is ld-musl"        "$READELF -l hello-dyn | grep -q 'ld-musl-x86_64.so.1'"
-check "PIE (ELF type DYN)"            "$READELF -h hello-dyn | grep -q 'DYN'"
-check "full RELRO (BIND_NOW)"         "$READELF -d hello-dyn | grep -Eq 'BIND_NOW|FLAGS.*NOW'"
-check "GNU_RELRO segment"             "$READELF -l hello-dyn | grep -q GNU_RELRO"
-check "non-executable stack"          "$READELF -lW hello-dyn | awk '/GNU_STACK/{print \$7}' | grep -qx RW"
-check "no RWX segments (W^X)"         "! $READELF -lW hello-dyn | awk '/LOAD/{print \$7}' | grep -q RWE"
-check "stack protector emitted"       "$READELF -sW hello-dyn | grep -q __stack_chk_fail"
+check "C++ + threads runs"            "$LOADER --library-path \"\$CXXLIBDIR\" ./hello-cxx | grep -c 'c++ threads'"
+check "interpreter is ld-musl"        "$READELF -l hello-dyn | grep -c 'ld-musl-x86_64.so.1'"
+check "PIE (ELF type DYN)"            "$READELF -h hello-dyn | grep -c 'DYN'"
+check "full RELRO (BIND_NOW)"         "$READELF -d hello-dyn | grep -Ec 'BIND_NOW|FLAGS.*NOW'"
+check "GNU_RELRO segment"             "$READELF -l hello-dyn | grep -c GNU_RELRO"
+check "non-executable stack"          "$READELF -lW hello-dyn | awk '/GNU_STACK/{print \$7}' | grep -cx RW"
+check "no RWX segments (W^X)"         "! $READELF -lW hello-dyn | awk '/LOAD/{print \$7}' | grep -c RWE"
+check "stack protector emitted"       "$READELF -sW hello-dyn | grep -c __stack_chk_fail"
 check "deterministic: rebuild same"   "$CC $CFLAGS hello.c -o hello-dyn2 $LDFLAGS && cmp -s hello-dyn hello-dyn2"
 exit $fail

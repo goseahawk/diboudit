@@ -1,0 +1,5 @@
+# SC1007: `X= Y=` empty assignments are intentional
+# SC2034: config vars are consumed by scripts that source lib.sh
+# SC2054: commas inside QEMU option strings are not array separators
+disable=SC1007,SC2034,SC2054
+external-sources=true

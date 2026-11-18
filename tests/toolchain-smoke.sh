@@ -32,7 +32,12 @@ check "default -march is broadwell"   "$CC -Q --help=target 2>/dev/null | grep -
 check "AVX2 enabled by default"       "echo | $CC -dM -E - | grep -q __AVX2__"
 check "static-pie binary runs"        "./hello-static | grep -q 'hello from musl'"
 check "dynamic binary runs (musl ld)" "$LOADER ./hello-dyn | grep -q 'hello from musl'"
-check "C++ + threads runs"            "LD_LIBRARY_PATH=$TOOLS/$TARGET/lib $LOADER ./hello-cxx | grep -q 'c++ threads'"
+# gcc puts the target's libstdc++/libgcc_s in lib/ or lib64/ depending on the
+# target; find it rather than guess. Without the right path musl's loader
+# falls back to the host's /lib and picks up glibc's libstdc++.
+CXXLIBDIR=$(dirname "$(find "$TOOLS/$TARGET" -name 'libstdc++.so.6' -print -quit 2>/dev/null)" 2>/dev/null || true)
+check "C++ runtime libs found"        "[[ -n \$CXXLIBDIR && -e \$CXXLIBDIR/libstdc++.so.6 ]]"
+check "C++ + threads runs"            "$LOADER --library-path \"\$CXXLIBDIR\" ./hello-cxx | grep -q 'c++ threads'"
 check "interpreter is ld-musl"        "$READELF -l hello-dyn | grep -q 'ld-musl-x86_64.so.1'"
 check "PIE (ELF type DYN)"            "$READELF -h hello-dyn | grep -q 'DYN'"
 check "full RELRO (BIND_NOW)"         "$READELF -d hello-dyn | grep -Eq 'BIND_NOW|FLAGS.*NOW'"

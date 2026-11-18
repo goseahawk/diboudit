@@ -30,8 +30,22 @@ log "musl signing key"
 gpg --batch --quiet --import "$G/musl.pub" || die "musl.pub did not import"
 
 log "kernel.org keys via WKD"
-gpg --batch --quiet --auto-key-locate clear,wkd,nodefault \
-	--locate-keys torvalds@kernel.org gregkh@kernel.org || die "WKD lookup on kernel.org failed"
+# WKD by hand with curl rather than `gpg --locate-keys`: gpg's dirmngr does its
+# own DNS and ignores HTTPS proxies, so it fails on many networks.
+wkd_hash() { python3 -I -c 'import hashlib,sys
+a="ybndrfg8ejkmcpqxot1uwisza345h769"; h=hashlib.sha1(sys.argv[1].lower().encode()).digest()
+n=int.from_bytes(h,"big"); print("".join(a[(n>>(155-5*i))&31] for i in range(32)))' "$1"; }
+for addr in torvalds@kernel.org gregkh@kernel.org; do
+	local_part=${addr%@*}; domain=${addr#*@}; h=$(wkd_hash "$local_part")
+	"$TOP/scripts/fetch.sh" --download-only \
+		"https://openpgpkey.$domain/.well-known/openpgpkey/$domain/hu/$h?l=$local_part" "$G/$local_part.key" 2>/dev/null \
+	|| "$TOP/scripts/fetch.sh" --download-only \
+		"https://$domain/.well-known/openpgpkey/hu/$h?l=$local_part" "$G/$local_part.key" \
+	|| die "WKD lookup for $addr failed"
+	# keep only the user ID for this address (WKD rule), then import
+	gpg --batch --quiet --import-filter "keep-uid=mbox=$addr" --import "$G/$local_part.key" \
+		|| die "key for $addr did not import"
+done
 
 echo
 echo "Imported $gnu_count keys from the GNU keyring (fingerprint of the actual"

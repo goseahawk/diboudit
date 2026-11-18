@@ -9,8 +9,8 @@ decided and why, and lists every known stub.
 
 | Layer            | Choice                                   | Decided in |
 |------------------|------------------------------------------|------------|
-| Toolchain        | GCC 15 + binutils 2.45, cross, musl target | Phase 0 ✔ |
-| libc             | musl 1.2.5                               | Phase 0 ✔ |
+| Toolchain        | GCC 16.2 + binutils 2.47, cross, musl target | Phase 0 ✔ |
+| libc             | musl 1.2.6 + 2 upstream CVE patches      | Phase 0 ✔ |
 | Boot             | Kernel EFI stub as `\EFI\BOOT\BOOTX64.EFI`, no bootloader | Phase 0 ✔ (layout), Phase 1 (kernel) |
 | Kernel           | Latest stable, allnoconfig-up, built-in drivers, PREEMPT, HZ=1000 | Phase 1 |
 | Init / services  | Our own PID 1 plus a supervisor          | Phase 2 |
@@ -169,16 +169,36 @@ host and has no path to the Mac's internal SSD.
 | Image reproducible (two builds, `cmp`) | verified, after fixing ext4 ctimes |
 | OVMF boots `BOOTX64.EFI` from our GPT disk over AHCI | verified (serial `BdsDxe: starting Boot0001 … QEMU HARDDISK`, plus a framebuffer screendump of the kernel running) |
 | EFI-stub kernel boot with a kernel log on serial | verified, up to the expected no-root panic |
-| Cross toolchain build and smoke test | **NOT YET RUN.** The first development container's network policy blocked the upstream source hosts, so no tarball could be fetched or locked. Run `./build.sh lock && ./build.sh` on your host. |
+| `lock`/`fetch` logic (signature check, sha256 pin, tamper and bad-signature refusal) | verified offline with a throwaway key |
+| Key import (`./build.sh keys`), incl. kernel.org WKD through an HTTPS proxy | verified; fingerprints shown matched kernel.org and the musl site |
+| Cross toolchain build and smoke test | **NOT YET RUN.** It needs you to confirm the signing keys first. Run `./doit.sh`. |
 
 The harness was checked with a stock Ubuntu 6.8 kernel used as a **test
 fixture only**; it isn't part of mbaos. Phase 1 replaces it with our own
 kernel.
 
-### 0.10 Known issues carried forward
+### 0.10 Versions and security patches
 
-* **musl 1.2.5 has CVE-2025-26519** (iconv out-of-bounds write). Before target
-  userland ships (Phase 2), add the upstream fix to `patches/musl/` (applied
-  automatically by `toolchain.sh`) or bump to a fixed release.
-* Versions in `sources.lock` were chosen as known-existing releases; Phase 1
-  re-checks every one for the newest stable release before locking.
+Versions were checked against upstream on 2026-11-18 and pinned to the newest
+stable release of each: binutils 2.47, GCC 16.2.0, GMP 6.3.0, MPFR 4.2.2,
+MPC 1.3.1, musl 1.2.6, Linux 7.3.5 (UAPI headers only in Phase 0; the Phase 1
+kernel uses the same tree).
+
+musl 1.2.6 fixes CVE-2025-26519. It is still affected by advisories listed on
+musl.libc.org; patches are vendored in `patches/musl/` (applied automatically,
+and pinned by git):
+
+| CVE | Affects | Action |
+|---|---|---|
+| CVE-2026-107891 | `regcomp` integer overflows → heap OOB write | patched (`0001-…`, Szabolcs Nagy) |
+| CVE-2026-6042 | `iconv` GB18030 decoder DoS | patched (`0002-…`, Rich Felker) |
+| CVE-2026-40200 | `qsort` on 32-bit archs only | not applicable (x86_64), not applied |
+
+Drop the patches once musl 1.2.7 is released and pinned.
+
+### 0.11 One-command bootstrap
+
+`./doit.sh` runs every Phase 0 step in order: tools, keys, lock, fetch,
+toolchain, smoke test, harness self-test, then commits the pins. It logs
+everything to `build/doit.log`. It stops for exactly two human decisions:
+installing packages with sudo, and confirming the signing-key fingerprints.

@@ -3,7 +3,11 @@
 A from-source, minimal Unix-like OS for the 2015 MacBook Air (MacBookAir7,1/7,2).
 Design and rationale: [DESIGN.md](DESIGN.md).
 
+**Quick start:** on a 64-bit Linux machine, run `./doit.sh`. It does all of Phase 0 and
+writes a log to `build/doit.log`.
+
 ```
+doit.sh                run everything for Phase 0, start to finish
 build.sh               single entry point (./build.sh help lists commands)
 config/target.conf     machine, flags, fixed IDs for reproducibility
 sources.lock           pinned versions + sha256 of every upstream source

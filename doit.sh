@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2206  # $SUDO is intentionally empty or one word
+# doit.sh — run all of Phase 0 on your Linux machine, start to finish.
+#
+#   ./doit.sh
+#
+# What it does, in order (it stops at the first thing that fails):
+#   1. installs any missing build tools (asks before using sudo)
+#   2. gets the upstream signing keys        (asks you to check 2 fingerprints)
+#   3. pins every source download (sha256)
+#   4. builds the cross compiler             (the long part: ~20-60 minutes)
+#   5. tests the cross compiler
+#   6. boots a test disk image in QEMU       (uses your own Linux kernel as a stand-in)
+#   7. offers to commit + push the pinned checksums to GitHub
+#
+# Everything is also written to build/doit.log — send that file to Claude.
+# Safe to run again: finished steps are skipped.
+set -uo pipefail
+cd "$(dirname "$0")" || exit 1
+mkdir -p build
+LOG=$PWD/build/doit.log
+exec > >(tee -a "$LOG") 2>&1
+
+B=$'\033[1m' G=$'\033[1;32m' R=$'\033[1;31m' Y=$'\033[1;33m' N=$'\033[0m'
+step()  { printf '\n%s━━━ Step %s ━━━%s\n' "$B" "$*" "$N"; }
+ok()    { printf '%s✔ %s%s\n' "$G" "$*" "$N"; }
+fail()  {
+	printf '\n%s✘ %s%s\n' "$R" "$*" "$N"
+	printf '\nStopped. Send this file to Claude:  %s\n' "$LOG"
+	exit 1
+}
+ask()   { local a; read -r -p "$1 [y/N] " a </dev/tty; [[ $a == [yY]* ]]; }
+
+echo "mbaos Phase 0 — $(date -u '+%Y-%m-%d %H:%M UTC') — $(uname -srm)"
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || fail "This needs a 64-bit x86 Linux machine (got $(uname -sm))."
+SUDO=; [[ $EUID -ne 0 ]] && SUDO=sudo
+
+# ---- 1. build tools ---------------------------------------------------------------
+step "1/7: build tools"
+if ! ./build.sh check-host >/dev/null 2>&1; then
+	if   command -v apt-get >/dev/null; then
+		cmd=($SUDO apt-get install -y build-essential bison flex gawk texinfo m4 perl python3 bc rsync xz-utils curl gpgv gnupg patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 ovmf file)
+		pre=($SUDO apt-get update)
+	elif command -v pacman >/dev/null; then
+		cmd=($SUDO pacman -S --needed --noconfirm base-devel bison flex gawk texinfo perl python bc rsync xz curl gnupg patch gptfdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file)
+		pre=(true)
+	elif command -v dnf >/dev/null; then
+		cmd=($SUDO dnf install -y gcc gcc-c++ make bison flex gawk texinfo m4 perl python3 bc rsync xz curl gnupg2 patch gdisk dosfstools mtools e2fsprogs qemu-system-x86 edk2-ovmf file)
+		pre=(true)
+	else
+		./build.sh check-host
+		fail "Unknown Linux distribution. Install the tools listed above, then run ./doit.sh again."
+	fi
+	echo "Some build tools are missing. This command will install them:"
+	echo "  ${cmd[*]}"
+	ask "Install them now?" || fail "Tools not installed."
+	"${pre[@]}" && "${cmd[@]}" || fail "Package install failed."
+fi
+./build.sh check-host || fail "Build tools still missing (see above)."
+ok "build tools present"
+
+# ---- 2. signing keys --------------------------------------------------------------
+step "2/7: upstream signing keys"
+if [[ -s keys/trusted.gpg ]]; then
+	ok "already have keys/trusted.gpg"
+else
+	cat <<EOF
+${Y}Your one manual check:${N} the script will show fingerprints (long hex strings)
+for the Linux kernel and musl keys. Open these pages and check that the
+fingerprints match:
+    kernel:  https://www.kernel.org/signature.html   (Torvalds + Kroah-Hartman)
+    musl:    https://musl.libc.org/
+Matching means the downloads really come from those projects. If they match,
+type yes.
+EOF
+	./build.sh keys || fail "Getting signing keys failed (or you did not type yes)."
+	ok "keys/trusted.gpg written"
+fi
+
+# ---- 3. pin sources ---------------------------------------------------------------
+step "3/7: pin source downloads (verify signatures, record sha256)"
+./build.sh lock || fail "Pinning sources failed."
+ok "all sources pinned in sources.lock"
+
+# ---- 4+5. toolchain + smoke test ----------------------------------------------------
+step "4/7: build the cross compiler (long: get a coffee)"
+start=$SECONDS
+./build.sh fetch     || fail "Downloading sources failed."
+./build.sh toolchain || fail "Cross compiler build failed. The logs named above have the details."
+ok "cross compiler built in $(( (SECONDS-start)/60 )) min"
+
+step "5/7: test the cross compiler"
+./build.sh smoke || fail "Cross compiler test failed."
+ok "cross compiler passes every check"
+
+# ---- 6. harness self-test -----------------------------------------------------------
+step "6/7: disk image + QEMU boot test"
+K=build/host-kernel
+kv=/boot/vmlinuz-$(uname -r)
+if [[ ! -s $K ]]; then
+	if   [[ -r $kv ]]; then cp "$kv" "$K"
+	elif [[ -e $kv ]]; then echo "Reading your kernel ($kv) needs sudo."; $SUDO cat "$kv" > "$K" || rm -f "$K"
+	fi
+fi
+if [[ -s $K ]] && file -L "$K" | grep -q 'Linux kernel'; then
+	./build.sh harness-selftest KERNEL="$K" || fail "QEMU boot test failed."
+	ok "QEMU boot test passed (screenshot: build/selftest/disk-screen.png)"
+else
+	printf '%s! skipped:%s no readable kernel at %s (not a problem; Phase 1 builds our own)\n' "$Y" "$N" "$kv"
+fi
+
+# ---- 7. save pinned checksums to GitHub ----------------------------------------------
+step "7/7: save the pinned checksums to GitHub"
+if git rev-parse --git-dir >/dev/null 2>&1 && [[ -n $(git status --porcelain -- sources.lock keys/) ]]; then
+	git --no-pager diff --stat -- sources.lock keys/ 2>/dev/null
+	if ask "Commit sources.lock + keys/ and push to GitHub?"; then
+		git add sources.lock keys/trusted.gpg keys/fingerprints.log &&
+		git commit -q -m "Pin Phase 0 sources (GPG-verified sha256 + signing keys)" &&
+		git push && ok "pushed" || printf '%s! push failed%s — run: git push\n' "$Y" "$N"
+	else
+		echo "Skipped. Later: git add sources.lock keys/ && git commit -m 'Pin sources' && git push"
+	fi
+else
+	ok "nothing new to commit"
+fi
+
+printf '\n%s━━━ PHASE 0 DONE ━━━%s\nSend this file to Claude:  %s\n' "$G" "$N" "$LOG"

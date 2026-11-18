@@ -355,9 +355,9 @@ the TSC is not reset at power-on, so the probe prints n/a.
 | Metric | QEMU TCG (this container) | Mac (USB stick) |
 |---|---|---|
 | bzImage size | 5.4 MiB (LZ4) | same image |
-| kernel start → init | 1.63 s (emulated CPU; not representative) | **4.39 s** (first boot, before fixes) |
+| kernel start → init | 1.63 s (emulated CPU; not representative) | 4.39 s first boot → **3.53 s** with `delay_use=0`; ~1.4 s of that is kernel work, the rest is waiting for the USB stick (below) |
 | CPU reset → init | n/a (hypervisor) | 15.3 s, includes sitting in the Option boot picker, so not a firmware measurement |
-| memory used at init | 69 MiB of 3.9 GiB | 92 MiB of 7.7 GiB (to investigate in Phase 2) |
+| memory used at init | 69 MiB of 3.9 GiB | 92–96 MiB of 7.7 GiB (to investigate in Phase 2) |
 
 First Mac boot, where the 4.39 s went (from the photo of the screen):
 
@@ -368,6 +368,17 @@ First Mac boot, where the 4.39 s went (from the photo of the screen):
 * 0 → 3.1 s scrolled off the screen. The boot probe now reads the kernel log
   and prints the ten largest gaps between messages, so the next Mac boot
   shows where that time goes.
+* Second Mac boot (with `delay_use=0` and the gap report): kernel → init
+  **3.53 s**. AHCI link (internal SSD) up at 0.61 s; all other kernel work
+  (USB keyboard, trackpad, Bluetooth enumeration) done by ~1.4 s. The stick
+  appeared on the USB 3 bus at 0.75 s, but usb-storage only probed it at
+  3.01 s after **1.6 s with no log output at all**, and its first SCSI inquiry
+  took another 0.37 s; root mounted at 3.57 s. On the first boot the stick
+  also became usable at ~3.1 s, on a different port. So ~2 s of the boot is
+  the USB stick (or how the Mac powers up its USB 3 ports), not kernel work.
+  Booting root from the internal SSD would avoid it; that means writing to
+  the SSD, a separate and explicit decision for a later phase.
+* Firmware time is still unmeasured (11.1 s includes the Option boot picker).
 * `vmscape: Vulnerable` appears on the Mac (not in QEMU). VMSCAPE is a
   guest-to-host attack on KVM hosts; this kernel has no KVM, so it does not
   apply.

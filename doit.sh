@@ -96,17 +96,24 @@ ok "cross compiler passes every check"
 # ---- 6. harness self-test -----------------------------------------------------------
 step "6/7: disk image + QEMU boot test"
 K=build/host-kernel
-kv=/boot/vmlinuz-$(uname -r)
-if [[ ! -s $K ]]; then
+# Where distros keep the running kernel: Arch and Fedora ship a world-readable
+# copy in the modules dir; Debian/Ubuntu use /boot/vmlinuz-<version>; Arch's
+# /boot copy is named after the package (vmlinuz-linux, -lts, -zen, ...).
+kv=
+for c in "/usr/lib/modules/$(uname -r)/vmlinuz" "/lib/modules/$(uname -r)/vmlinuz" \
+         "/boot/vmlinuz-$(uname -r)" /boot/vmlinuz-linux /boot/vmlinuz-linux-* /boot/vmlinuz; do
+	[[ -e $c ]] && { kv=$c; break; }
+done
+if [[ ! -s $K && -n $kv ]]; then
 	if   [[ -r $kv ]]; then cp "$kv" "$K"
-	elif [[ -e $kv ]]; then echo "Reading your kernel ($kv) needs sudo."; $SUDO cat "$kv" > "$K" || rm -f "$K"
+	else echo "Reading your kernel ($kv) needs sudo."; $SUDO cat "$kv" > "$K" || rm -f "$K"
 	fi
 fi
 if [[ -s $K ]] && file -L "$K" | grep -q 'Linux kernel'; then
 	./build.sh harness-selftest KERNEL="$K" || fail "QEMU boot test failed."
 	ok "QEMU boot test passed (screenshot: build/selftest/disk-screen.png)"
 else
-	printf '%s! skipped:%s no readable kernel at %s (not a problem; Phase 1 builds our own)\n' "$Y" "$N" "$kv"
+	printf '%s! skipped:%s no readable host kernel found (not a problem; Phase 1 builds our own)\n' "$Y" "$N"
 fi
 
 # ---- 7. save pinned checksums to GitHub ----------------------------------------------
